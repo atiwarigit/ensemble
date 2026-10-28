@@ -18,30 +18,35 @@ export const LIMITS = {
 export const hashKey = (...parts: (string | null | undefined)[]) =>
   createHash("sha256").update(parts.map((p) => p ?? "").join("|")).digest("hex").slice(0, 32);
 
+const openWindow = (key: string, windowSec: number, now: number) =>
+  sql`select window_start from ${rateLimits} where key = ${key} and window_start > ${new Date(now - windowSec * 1000).toISOString()} order by window_start desc limit 1`;
+
+const retryAfterSec = (windowStart: Date | string, windowSec: number, now: number) =>
+  Math.max(1, Math.ceil((new Date(windowStart).getTime() + windowSec * 1000 - now) / 1000));
+
 /**
- * Fixed-window counter in Postgres, so limits hold across serverless instances. Counts the attempt
- * and reports whether it's within the limit.
+ * Counter in Postgres, so limits hold across serverless instances. A window opens at the first
+ * attempt (not on a clock boundary, which would let a burst straddle two windows) and lasts
+ * windowSec. Counts the attempt and reports whether it's within the limit.
  */
 export async function hitRateLimit(key: string, { limit, windowSec }: RateLimit, now = Date.now()) {
-  const windowStart = new Date(Math.floor(now / (windowSec * 1000)) * windowSec * 1000);
-  const [row] = await db
-    .insert(rateLimits)
-    .values({ key, windowStart, count: 1 })
-    .onConflictDoUpdate({ target: [rateLimits.key, rateLimits.windowStart], set: { count: sql`${rateLimits.count} + 1` } })
-    .returning({ count: rateLimits.count });
-  const retryAfter = Math.max(1, Math.ceil((windowStart.getTime() + windowSec * 1000 - now) / 1000));
-  return { ok: row.count <= limit, count: row.count, retryAfter };
+  const rows = await db.execute<{ window_start: string; count: number }>(sql`
+    insert into ${rateLimits} (key, window_start, count)
+    values (${key}, coalesce((${openWindow(key, windowSec, now)}), ${new Date(now).toISOString()}::timestamptz), 1)
+    on conflict (key, window_start) do update set count = ${rateLimits}.count + 1
+    returning window_start, count`);
+  const row = rows[0];
+  return { ok: row.count <= limit, count: row.count, retryAfter: retryAfterSec(row.window_start, windowSec, now) };
 }
 
-/** Reads the current window's count without counting an attempt (for failure-only limits). */
+/** Reads the open window's count without counting an attempt (for failure-only limits). */
 export async function peekRateLimit(key: string, { limit, windowSec }: RateLimit, now = Date.now()) {
-  const windowStart = new Date(Math.floor(now / (windowSec * 1000)) * windowSec * 1000);
-  const rows = await db.execute<{ count: number }>(
-    sql`select count from rate_limits where key = ${key} and window_start = ${windowStart.toISOString()}`,
+  const rows = await db.execute<{ window_start: string; count: number }>(
+    sql`select window_start, count from ${rateLimits} where key = ${key} and window_start > ${new Date(now - windowSec * 1000).toISOString()} order by window_start desc limit 1`,
   );
-  const count = rows[0]?.count ?? 0;
-  const retryAfter = Math.max(1, Math.ceil((windowStart.getTime() + windowSec * 1000 - now) / 1000));
-  return { ok: count < limit, count, retryAfter };
+  const row = rows[0];
+  if (!row) return { ok: true, count: 0, retryAfter: 0 };
+  return { ok: row.count < limit, count: row.count, retryAfter: retryAfterSec(row.window_start, windowSec, now) };
 }
 
 export function retryText(seconds: number) {

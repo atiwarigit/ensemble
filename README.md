@@ -21,6 +21,8 @@ password, TOTP 2FA) · shadcn/ui + Tailwind 4 · Zod · Vitest + Playwright.
 | Lyrics: immutable timestamped + hashed versions, diffs, contributor splits, evidence files, AI generation log | ✅ |
 | Approvals queue for gated actions; rights documentation packages (PDF + ZIP with SHA256SUMS) | ✅ |
 | Coordinator chat with Finance and Lyrics agents; Anthropic and/or OpenAI optional, slash commands without either | ✅ |
+| Analytics: Spotify for Artists CSV import, daily Spotify Web API snapshot, dashboards with source and as-of labels, alerts, Analytics agent | ✅ |
+| Hardening: rate limits, cron jobs (snapshot, audit-chain check, retention), security headers, error pages, restore drill | ✅ |
 
 ## Local development
 
@@ -60,6 +62,7 @@ are asked to enrol an authenticator app on first sign-in. For local testing,
 | `pnpm test:e2e` | Playwright against a dev server on :3100 using `E2E_DATABASE_URL` (reset + seeded on each run) |
 | `pnpm db:generate` | Generate a migration from `db/schema` changes |
 | `pnpm db:migrate` / `pnpm db:seed` | Apply migrations / seed the workspace and first users |
+| `pnpm verify:restore` | Read-only checks on a restored database (see `docs/backups-and-restore.md`) |
 
 ## Environment variables
 
@@ -81,6 +84,10 @@ are asked to enrol an authenticator app on first sign-in. For local testing,
 | `LLM_PROVIDER` | no | `anthropic`, `openai` or `none`; overrides the workspace setting. |
 | `LLM_MONTHLY_BUDGET_USD` | no | Default monthly cap per workspace (estimated cost), default `25`. |
 | `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` | tests | Point the SDKs at the mock in `tests/mocks/llm-server.mjs`. |
+| `CRON_SECRET` | prod | Random string (`openssl rand -hex 32`). Vercel Cron sends it as `Authorization: Bearer …`; `/api/cron/*` reject anything else. |
+| `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` | no | Spotify app credentials (Client Credentials flow). Without them, the daily snapshot is skipped; S4A imports still work. |
+| `SPOTIFY_API_BASE`, `SPOTIFY_ACCOUNTS_BASE` | tests | Point the client at `tests/mocks/spotify-server.mjs`. |
+| `AUDIT_ALERT_EMAIL` | no | Extra address(es), comma-separated, emailed when the nightly audit-chain check fails (needs Resend). |
 | `TEST_DATABASE_URL`, `E2E_DATABASE_URL` | tests | Separate databases for Vitest and Playwright. |
 
 ## Deploying to Vercel + Neon
@@ -109,7 +116,13 @@ Nothing is provisioned by this repo. To deploy:
    GRANT USAGE ON SEQUENCE audit_events_id_seq TO app_role;
    ```
 6. **Turn on Deployment Protection** for Preview deployments.
-7. Deploy. Run `pnpm db:migrate` before (or as part of) each deploy that adds migrations.
+7. **Crons.** `vercel.json` schedules `/api/cron/spotify` (06:15 UTC), `/api/cron/audit-verify`
+   (06:45) and `/api/cron/retention` (07:30). Set `CRON_SECRET` in Production; Vercel adds it to each
+   cron request. The System page (owners and admins) shows the last run of each job.
+8. **Spotify (optional).** Register an app at developer.spotify.com (see "Analytics" below) and set
+   `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`.
+9. Deploy. Run `pnpm db:migrate` before (or as part of) each deploy that adds migrations. After the
+   first deploy, do a restore drill (`docs/backups-and-restore.md`).
 
 ## Project layout
 
@@ -124,7 +137,11 @@ lib/rights/pdf.tsx   rights package PDF (@react-pdf/renderer)
 lib/csv/             CSV decoding, mapping guesses, parsing, dedupe hashing (pure, unit tested)
 samples/bank-csv/    sample bank statements for import testing
 samples/lyrics/      a sample poem and notebook-page photo for the authorship flow
-scripts/             migrate, seed, reset-db, totp
+samples/s4a/         Spotify for Artists exports (audience timeline, song timeline, Songs list)
+lib/spotify/         Spotify Web API client (token cache, Retry-After, quota handling)
+lib/jobs.ts          cron jobs: Spotify snapshot + alerts, audit-chain check, retention
+docs/                backups and restore, security review, onboarding, time-saved baseline
+scripts/             migrate, seed, reset-db, totp, verify-restore
 tests/unit, tests/e2e
 ```
 
@@ -281,3 +298,61 @@ Tests never call a real provider unless keys are already in the environment.
 `tests/mocks/llm-server.mjs` speaks the Anthropic Messages and OpenAI Responses streaming protocols,
 picks tools from keywords, and can be told to fail (`POST /__control`). Playwright starts it on
 :4110 and points both SDKs at it; with real keys set, it uses them instead.
+
+### Analytics
+
+Two sources, always labelled on screen and in agent answers with their **as-of** date:
+
+- **Spotify for Artists CSV** (streams, listeners, saves, playlist adds, followers). S4A has no API,
+  and scraping it is off the table, so the team exports CSVs (see `docs/onboarding.md`) and imports
+  them on the project's analytics page. Detected shapes: the audience timeline, a single song's
+  timeline, and the Songs list (no dates; you enter the period's last day). Songs are matched to the
+  linked catalogue by ISRC, Spotify URI or exact title. A point already stored for the same day, song
+  and metric is skipped. If its value differs, the stored value is kept and the preview says so.
+  Files over 500 rows need an approval (`import.commit_large`), and reverts are gated
+  (`import.revert`), as with bank imports.
+- **Spotify Web API daily snapshot** (`/api/cron/spotify`, Client Credentials). For each linked
+  artist: artist, albums and singles, album tracks, and each track once for its ISRC. Linking and
+  unlinking an artist are gated (`spotify.connect` / `spotify.disconnect`, owner approves). The
+  client caches the token for 55 minutes, retries 429s after `Retry-After` (up to 30 s, 3 times),
+  backs off on 5xx, and never retries a `QUOTA_EXCEEDED` 429.
+
+**Spotify's rules as of 2026-10-28** (re-check before relying on them):
+
+- New apps start in **Development Mode**. The app owner needs Spotify Premium, up to 5 allowlisted
+  users, and Spotify describes it as for non-commercial use by individual developers. Extended Quota
+  Mode is only for organisations with 250k+ monthly active users.
+- Development Mode responses omit artist `followers` and `popularity` and track `popularity`. The
+  batch endpoints (`/artists`, `/tracks`, `/albums`) and `artists/{id}/top-tracks` are gone. ISRCs
+  (`external_ids`) are still returned. Ensemble stores followers and popularity when they're present,
+  and otherwise explains why they're missing.
+- Rate limits are per developer account; a quota 429 has `error.reason = "QUOTA_EXCEEDED"`.
+
+**Alerts** (`lib/services/alerts.ts`) are evaluated after each snapshot, each S4A import and each rule
+change. They are stored as notifications (one per situation, deduplicated) and shown under
+Notifications to everyone on the project: streams up or down 50%+ week over week (S4A), S4A data
+older than 14 days, popularity moving 5+ points in 7 days, and follower milestones (Web API, only
+when Spotify shares them).
+
+The **Analytics agent** (`lib/agents/analytics.ts`) has `getTrends`, `compareTracks` and
+`explainChange`. `explainChange` compares the last N days with the N before, then lists releases
+(from the snapshot) and Marketing expenses in that period. It reports coincidences, never causes.
+Commands: `/streams [days]`, `/tracks [days]`, `/why [days]`.
+
+Tests use `tests/mocks/spotify-server.mjs`, which mimics Development Mode (or extended mode via
+`POST /__control`), rate limits, quota errors and 5xx. Playwright starts it on :4120.
+
+### Hardening
+
+- **Rate limits** (`lib/rate-limit.ts`, Postgres windows opened by the first attempt): 10 failed passwords per email per
+  address per 15 min; 100 password attempts per address per 15 min; 5 TOTP codes per pending
+  sign-in; 30 chat messages per user per 5 min.
+- **Jobs** record a `job_runs` row each. The audit-verify job notifies owners and admins in-app and
+  emails owners plus `AUDIT_ALERT_EMAIL` on a break. Retention is described on the System page and in
+  `docs/security-review.md`.
+- **Headers:** `X-Frame-Options`, CSP `frame-ancestors`, `nosniff`, referrer policy, permissions
+  policy, HSTS.
+- **Errors:** `app/(app)/error.tsx`, `app/not-found.tsx` and `app/global-error.tsx` show a reference
+  and change nothing. Empty states explain what to do next.
+- Docs: `docs/backups-and-restore.md`, `docs/security-review.md`, `docs/onboarding.md`,
+  `docs/time-saved-baseline.md`.

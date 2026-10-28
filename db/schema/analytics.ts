@@ -228,7 +228,7 @@ export const notificationReads = pgTable(
   (t) => [primaryKey({ columns: [t.notificationId, t.userId] })],
 );
 
-/** Fixed-window counters for rate limiting (auth and chat). Old windows are pruned by the retention job. */
+/** Rate-limit windows (auth and chat), each opened by its first attempt. Old windows are pruned by the retention job. */
 export const rateLimits = pgTable(
   "rate_limits",
   {

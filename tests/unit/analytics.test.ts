@@ -357,6 +357,20 @@ describe("hardening", () => {
     expect(LIMITS.chatPerUser).toEqual({ limit: 30, windowSec: 300 });
   });
 
+  it("a rate-limit window opens at the first attempt, so a burst across a clock boundary stays limited", async () => {
+    const key = `test:${randomUUID()}`;
+    const limit = { limit: 3, windowSec: 900 };
+    const start = Date.UTC(2026, 9, 28, 12, 14, 50);
+    expect((await peekRateLimit(key, limit, start)).ok).toBe(true);
+    for (let i = 0; i < 3; i++) expect((await hitRateLimit(key, limit, start + i * 1000)).ok).toBe(true);
+    const after = start + 20_000;
+    const blocked = await hitRateLimit(key, limit, after);
+    expect(blocked.ok).toBe(false);
+    expect(blocked.retryAfter).toBe(880);
+    expect((await peekRateLimit(key, limit, after)).retryAfter).toBe(880);
+    expect((await hitRateLimit(key, limit, start + 900_000)).ok).toBe(true);
+  });
+
   it("retention removes abandoned previews, old rate-limit windows and expired sessions, but no audit events", async () => {
     const { nikki, project } = await setup();
     const batch = await createS4aImport(nikki, { filename: "old.csv", bytes: sample("glass-rivers-timeline.csv"), projectId: project.id });
