@@ -1,7 +1,9 @@
-import { CheckCircle2, FileClock, Pencil } from "lucide-react";
+import { CheckCircle2, FileCheck2, FileClock, Lock, Pencil, Stamp } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
+import { PendingApprovalNotice } from "@/components/pending-approval-notice";
+import { RequestApprovalButton } from "@/components/request-approval-button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +21,7 @@ import {
   listVersions,
   STATUS_LABEL,
 } from "@/lib/services/lyrics";
+import { listApprovals } from "@/lib/services/approvals";
 import { listProjectMembers } from "@/lib/services/projects";
 import { ContributorsEditor } from "./contributors-editor";
 import { DetailsForm } from "./details-form";
@@ -33,13 +36,16 @@ export default async function LyricWorkPage(props: PageProps<"/lyrics/[workId]">
   const sp = await props.searchParams;
   const { ctx } = await requireAppContext();
   const { work, project, role } = await orNotFound(getWork(db, ctx, workId));
-  const [versions, contributors, evidence, generations, members] = await Promise.all([
+  const [versions, contributors, evidence, generations, members, pendingApprovals] = await Promise.all([
     listVersions(db, ctx, workId),
     listContributors(db, workId),
     listEvidence(db, workId),
     listGenerations(db, workId),
     listProjectMembers(db, ctx, work.projectId),
+    listApprovals(db, ctx, { scope: "pending", entityType: "lyric_work", entityId: workId }),
   ]);
+  const pendingFinalize = pendingApprovals.some((r) => r.req.actionType === "lyric.finalize");
+  const pendingSplit = pendingApprovals.some((r) => r.req.actionType === "lyric.contributors.change");
   const latest = versions[0]?.version;
   const canEdit = role !== "viewer" && !project.archivedAt;
   const isDraft = work.status === "draft";
@@ -67,16 +73,47 @@ export default async function LyricWorkPage(props: PageProps<"/lyrics/[workId]">
           </span>
         }
         actions={
-          canEdit &&
-          isDraft && (
-            <Button asChild>
-              <Link href={`/lyrics/${work.id}/edit`}>
-                <Pencil /> {latest ? "Edit lyrics" : "Add lyrics"}
-              </Link>
-            </Button>
-          )
+          <>
+            {latest && (
+              <Button variant="outline" asChild>
+                <Link href={`/lyrics/${work.id}/rights`}>
+                  <FileCheck2 /> Rights package
+                </Link>
+              </Button>
+            )}
+            {canEdit && isDraft && latest && (
+              <RequestApprovalButton
+                actionType="lyric.finalize"
+                payload={{ workId: work.id }}
+                variant="outline"
+                disabled={pendingFinalize}
+                title={`Request finalization of “${work.title}”`}
+                description="Finalizing locks the text and the split and issues the final rights package. A project lead or workspace owner has to approve it; you can't approve your own request."
+              >
+                <Stamp /> {pendingFinalize ? "Finalization requested" : "Request finalization"}
+              </RequestApprovalButton>
+            )}
+            {canEdit && isDraft && (
+              <Button asChild>
+                <Link href={`/lyrics/${work.id}/edit`}>
+                  <Pencil /> {latest ? "Edit lyrics" : "Add lyrics"}
+                </Link>
+              </Button>
+            )}
+          </>
         }
       />
+
+      <PendingApprovalNotice rows={pendingApprovals} />
+      {!isDraft && work.finalizedAt && (
+        <Alert data-testid="final-alert">
+          <Lock />
+          <AlertTitle>Final</AlertTitle>
+          <AlertDescription>
+            Finalized {formatTimestamp(work.finalizedAt)}. The text and split are locked; split changes need an approval.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {saved && (
         <Alert data-testid="saved-alert">
@@ -118,7 +155,8 @@ export default async function LyricWorkPage(props: PageProps<"/lyrics/[workId]">
             <CardContent>
               <ContributorsEditor
                 workId={work.id}
-                editable={canEdit && isDraft}
+                mode={!canEdit ? "readonly" : isDraft ? "direct" : "request"}
+                hasPendingRequest={pendingSplit}
                 initial={contributors.map((c) => ({
                   name: c.name,
                   userId: c.userId,

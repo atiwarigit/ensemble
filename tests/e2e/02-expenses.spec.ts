@@ -1,6 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { NIKKI, signIn } from "./helpers";
+import { NIKKI, signIn, signInAsOwner, signOut } from "./helpers";
 
 test.describe.configure({ mode: "serial" });
 
@@ -61,19 +61,46 @@ test("budgets show spend against the limit in reports", async ({ page }) => {
   await expect(page.getByTestId("report-category").first()).toBeVisible();
 });
 
-test("the project lead reverts the import and the audit log records it", async ({ page }) => {
+test("a revert is requested, approved by the owner, and the audit log records both", async ({ page }) => {
   await signIn(page, NIKKI);
   await page.goto("/expenses/import");
   await page.getByRole("link", { name: "chase-checking-2026-10.csv" }).first().click();
-  page.once("dialog", (d) => d.accept());
-  await page.getByRole("button", { name: "Revert import" }).click();
-  await expect(page.getByText("Import reverted")).toBeVisible();
+  await page.getByRole("button", { name: "Request revert" }).click();
+  await page.getByLabel("Reason (optional)").fill("Imported into the wrong project");
+  await page.getByRole("button", { name: "Send request" }).click();
+  await expect(page.getByTestId("pending-approval")).toContainText("Revert the import of chase-checking-2026-10.csv");
+  await expect(page.getByRole("button", { name: "Revert requested" })).toBeDisabled();
+
+  // Nikki leads this project, but a requester can't approve their own request.
+  await page.goto("/approvals");
+  const mine = page.getByTestId("approval-request").filter({ hasText: "chase-checking-2026-10.csv" });
+  await expect(mine.getByRole("button", { name: "Approve" })).toHaveCount(0);
+  await expect(mine.getByRole("button", { name: "Withdraw" })).toBeVisible();
+  await signOut(page);
+
+  await signInAsOwner(page);
+  await expect(page.getByTestId("nav-badge-approvals")).toHaveText("1");
+  await page.getByRole("link", { name: "Approvals" }).click();
+  const request = page.getByTestId("approval-request").filter({ hasText: "chase-checking-2026-10.csv" });
+  await expect(request).toContainText("Imported into the wrong project");
+  await request.getByRole("button", { name: "Approve" }).click();
+  await expect(page.getByText("Approved and done.")).toBeVisible();
+  await expect(page.getByTestId("approval-history-row").first()).toContainText("Approved · done");
 
   await page.goto(`/expenses?project=${projectId}&month=2026-10`);
   await expect(page.getByTestId("expense-row")).toHaveCount(0);
 
   await page.goto(`/projects/${projectId}/activity`);
-  for (const action of ["import.uploaded", "import.committed", "import.discarded", "import.reverted", "expense.budget.created"]) {
+  for (const action of [
+    "import.uploaded",
+    "import.committed",
+    "import.discarded",
+    "approval.requested",
+    "approval.approved",
+    "import.reverted",
+    "approval.executed",
+    "expense.budget.created",
+  ]) {
     await expect(page.getByText(action, { exact: true }).first()).toBeVisible();
   }
 });

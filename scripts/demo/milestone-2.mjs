@@ -77,10 +77,16 @@ try {
   await caption("Open the committed import from the history…", 1200);
   await page.getByRole("link", { name: "chase-checking-2026-10.csv" }).first().click();
   await page.waitForURL(/\/expenses\/import\/[0-9a-f-]{36}$/);
-  await caption("Made a mistake? The project lead can revert the whole batch.", 2200);
-  page.once("dialog", (d) => d.accept());
-  await page.getByRole("button", { name: "Revert import" }).click();
-  await page.getByText("Import reverted").waitFor();
+  await caption("Made a mistake? Reverting the whole batch goes through an approval.", 2200);
+  await page.getByRole("button", { name: "Request revert" }).click();
+  await page.getByLabel("Reason (optional)").fill("Demo: undo this import");
+  await page.getByRole("button", { name: "Send request" }).click();
+  await page.getByTestId("pending-approval").waitFor();
+  await page.getByRole("link", { name: "Approvals" }).click();
+  await page.waitForURL("**/approvals");
+  await caption("As workspace owner, Romel can approve his own request; it's flagged as self-approved.", 2500);
+  await page.getByTestId("approval-request").first().getByRole("button", { name: "Approve" }).click();
+  await page.getByText("Approved and done.").waitFor();
   await caption("Reverted: the 12 expenses are archived and the file can be re-imported later.", 3000);
 
   await page.goto("/audit");

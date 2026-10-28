@@ -19,6 +19,7 @@ password, TOTP 2FA) · shadcn/ui + Tailwind 4 · Zod · Vitest + Playwright.
 | Bank CSV import: column mapping, saved presets, preview, dedupe, revert | ✅ |
 | Categorization rules, budgets with alert thresholds, monthly reports, CSV export | ✅ |
 | Lyrics: immutable timestamped + hashed versions, diffs, contributor splits, evidence files, AI generation log | ✅ |
+| Approvals queue for gated actions; rights documentation packages (PDF + ZIP with SHA256SUMS) | ✅ |
 
 ## Local development
 
@@ -113,6 +114,7 @@ db/schema, db/migrations
 lib/auth.ts          Better Auth server config (+ auth audit hooks)
 lib/authz.ts         session → ServiceContext, Server Action wrapper
 lib/services/*       the only code that writes the DB; every mutation audits in the same transaction
+lib/rights/pdf.tsx   rights package PDF (@react-pdf/renderer)
 lib/csv/             CSV decoding, mapping guesses, parsing, dedupe hashing (pure, unit tested)
 samples/bank-csv/    sample bank statements for import testing
 samples/lyrics/      a sample poem and notebook-page photo for the authorship flow
@@ -153,8 +155,8 @@ the Audit log page.
   are masked to the last 4 digits.
 - Reverting a batch archives its expenses (they stay in the DB for the audit trail) and frees their
   dedupe keys so the file can be imported again.
-- Until the approvals queue lands, reverts and imports over 500 rows require the project lead (or a
-  workspace owner for personal imports).
+- Reverts and imports over 500 rows go through the approvals queue (see below). A project lead or
+  workspace owner approves project imports; personal imports need a workspace owner.
 
 Sample statements for testing live in `samples/bank-csv/`:
 
@@ -185,3 +187,53 @@ Sample statements for testing live in `samples/bank-csv/`:
   SHA-256, so no blob store is needed. Downloads are audited.
 - An AI generation log entry must reference a recorded lyric version of the same work, so a work with
   no human lyrics can't have generations.
+
+### Approvals
+
+Gated actions (plan §3.5) never run directly. They create an `approval_requests` row holding the
+validated payload, and run only when someone approves it. The action registry is
+`APPROVAL_ACTIONS` in `lib/services/approvals.ts`:
+
+| Action | Who can request | Who can approve |
+| --- | --- | --- |
+| `lyric.finalize`: lock text and split, issue the final rights package | editor | project lead or owner |
+| `lyric.contributors.change`: new split on a final work, plus a new final package | editor | project lead or owner |
+| `import.commit_large`: commit an import over 500 rows | editor | project lead, or owner for personal imports |
+| `import.revert`: revert any import | editor, or the uploader for personal imports | project lead, or owner for personal imports |
+| `project.archive` | project lead | workspace owner |
+| `project.allow_llm_on_lyrics`: let AI models read the project's lyrics | project lead | workspace owner |
+
+- On approval, the payload is re-validated against current state and executed under the
+  **approver's** identity, inside a savepoint. If it no longer applies (for example, the import was
+  already reverted), the request is marked `failed` and nothing changes. `approval.requested`,
+  `approval.approved`, `approval.executed` / `approval.failed`, `approval.rejected`,
+  `approval.withdrawn` and `approval.expired` are all audited.
+- A requester can't approve their own request, unless they're a workspace owner. An owner's
+  self-approval is recorded with `selfApproved: true` and badged in the history.
+- Requests expire after 7 days (checked lazily on read and write). Only one pending request per
+  action and record. A trigger makes decided requests immutable and rejects deletes.
+- Unarchiving a project and turning AI access to lyrics *off* are not gated.
+
+### Rights packages
+
+`/lyrics/<id>/rights` previews the package. Editors can generate a **draft** package at any time; it
+carries a DRAFT watermark. The **final** package is generated when a `lyric.finalize` request is
+approved, and again after an approved split change. Packages are stored in Postgres
+(`rights_packages` + `stored_files`), are append-only, and every download is audited.
+
+The ZIP contains:
+
+```
+rights-package.pdf     title/ISRC/ISWC, splits, authorship timeline, evidence, generation log,
+                       human vs. AI statement, audit excerpt with chain head, attestation block
+manifest.json          the same records as JSON (format "ensemble.rights-package/1")
+versions/v001.txt …    the exact text of each version; sha256 matches contentSha256
+evidence/01-…          the evidence files as uploaded
+SHA256SUMS             sha256 of every other file. Check with `sha256sum -c SHA256SUMS`
+```
+
+Each version in `manifest.json` names the audit event that recorded it (`auditEventId`,
+`auditEventHash`), so the package can be checked against the audit log. The PDF footer states the
+limitation: these records prove when Ensemble recorded the text, not when it was written. The PDF
+uses the built-in Latin-1 fonts; text outside Latin-1 is exact in the `.txt` files but may not
+render in the PDF.

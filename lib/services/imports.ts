@@ -24,13 +24,13 @@ import { requireProjectRole, requireWorkspaceRole, visibleProjectIds } from "./a
 import { forbidden, invalid, notFound, type ServiceContext } from "./context";
 import { listCategories, listRules, matchRule } from "./expenses";
 
-/** Plan §3.5: large commits and reverts become approval requests once the approvals queue exists. */
+/** Plan §3.5: commits above this many rows, and every revert, run only through an approval request. */
 export const LARGE_IMPORT_ROWS = 500;
 const INSERT_CHUNK = 500;
 
 export type ImportBatch = typeof importBatches.$inferSelect;
 
-async function loadBatch(exec: Executor, ctx: ServiceContext, batchId: string, opts: { forUpdate?: boolean } = {}) {
+export async function loadBatch(exec: Executor, ctx: ServiceContext, batchId: string, opts: { forUpdate?: boolean } = {}) {
   const q = exec
     .select()
     .from(importBatches)
@@ -45,7 +45,7 @@ async function loadBatch(exec: Executor, ctx: ServiceContext, batchId: string, o
   return batch;
 }
 
-async function assertCanImportInto(exec: Executor, ctx: ServiceContext, projectId: string | null) {
+export async function assertCanImportInto(exec: Executor, ctx: ServiceContext, projectId: string | null) {
   requireWorkspaceRole(ctx, "member");
   if (projectId) await requireProjectRole(exec, ctx, projectId, "editor");
 }
@@ -266,117 +266,125 @@ export async function updateImportMapping(ctx: ServiceContext, batchId: string, 
 // Commit / revert / discard
 
 export async function commitImport(ctx: ServiceContext, batchId: string) {
-  return db.transaction(async (tx) => {
-    const batch = await loadBatch(tx, ctx, batchId, { forUpdate: true });
-    if (batch.status !== "previewed") throw invalid("This import has already been committed.");
-    await assertCanImportInto(tx, ctx, batch.projectId);
-    const mapping = batchMapping(batch);
-    if (!mapping) throw invalid("Map the columns before importing.");
-    const { mappingError, rows, totals } = await buildPreview(tx, ctx, batch, mapping);
-    if (mappingError) throw invalid(mappingError);
-    if (totals.toImport > LARGE_IMPORT_ROWS) {
-      if (batch.projectId) await requireProjectRole(tx, ctx, batch.projectId, "lead");
-      else if (ctx.workspaceRole !== "owner") {
-        throw forbidden(`Imports over ${LARGE_IMPORT_ROWS} rows need a workspace owner.`);
-      }
-    }
-
-    const toInsert = rows.filter((r) => r.status === "ok" && !r.duplicate);
-    let inserted = 0;
-    let insertedMinor = 0;
-    for (let i = 0; i < toInsert.length; i += INSERT_CHUNK) {
-      const chunk = toInsert.slice(i, i + INSERT_CHUNK);
-      const result = await tx
-        .insert(expenses)
-        .values(
-          chunk.map((r) => ({
-            workspaceId: ctx.workspaceId,
-            projectId: batch.projectId,
-            date: r.date!,
-            amountMinor: r.amountMinor!,
-            currency: r.currency,
-            merchant: r.merchant,
-            description: r.description,
-            categoryId: r.categoryId,
-            paymentAccount: r.account,
-            source: "csv" as const,
-            importBatchId: batch.id,
-            dedupeHash: r.dedupeHash,
-            createdBy: ctx.userId,
-          })),
-        )
-        .onConflictDoNothing()
-        .returning({ amountMinor: expenses.amountMinor });
-      inserted += result.length;
-      insertedMinor += result.reduce((s, r) => s + r.amountMinor, 0);
-    }
-
-    const errors = rows
-      .filter((r) => r.status === "error")
-      .slice(0, 100)
-      .map((r) => ({ line: r.line, message: r.errors.join("; ") }));
-    const skippedDupes = totals.duplicates + (toInsert.length - inserted);
-    const [updated] = await tx
-      .update(importBatches)
-      .set({
-        status: "committed",
-        inserted,
-        skippedDupes,
-        excluded: totals.excluded,
-        errors,
-        totalMinor: insertedMinor,
-        rawCsv: null,
-        committedAt: new Date(),
-      })
-      .where(eq(importBatches.id, batch.id))
-      .returning();
-    await recordAudit(tx, ctx, {
-      action: "import.committed",
-      projectId: batch.projectId,
-      entityType: "import_batch",
-      entityId: batch.id,
-      after: {
-        filename: batch.filename,
-        sha256: batch.fileSha256,
-        rows: totals.rows,
-        inserted,
-        skippedDupes,
-        excluded: totals.excluded,
-        errors: totals.errors,
-        totalMinor: insertedMinor,
-        currency: "USD",
-      },
-    });
-    return updated;
-  });
+  return db.transaction((tx) => commitImportTx(tx, ctx, batchId, { approved: false }));
 }
 
-export async function revertImport(ctx: ServiceContext, batchId: string) {
-  return db.transaction(async (tx) => {
-    const batch = await loadBatch(tx, ctx, batchId, { forUpdate: true });
-    if (batch.status !== "committed") throw invalid("Only committed imports can be reverted.");
-    if (batch.projectId) await requireProjectRole(tx, ctx, batch.projectId, "lead");
-    else if (batch.createdBy !== ctx.userId && ctx.workspaceRole !== "owner") throw forbidden();
+/** Rows a commit would insert right now; used to decide whether the commit needs an approval. */
+export async function pendingImportRows(exec: Executor, ctx: ServiceContext, batch: ImportBatch) {
+  const mapping = batchMapping(batch);
+  if (!mapping) throw invalid("Map the columns before importing.");
+  const { mappingError, totals } = await buildPreview(exec, ctx, batch, mapping);
+  if (mappingError) throw invalid(mappingError);
+  return totals.toImport;
+}
 
-    const removed = await tx
-      .update(expenses)
-      .set({ archivedAt: new Date() })
-      .where(and(eq(expenses.importBatchId, batch.id), isNull(expenses.archivedAt)))
-      .returning({ id: expenses.id });
-    await tx
-      .update(importBatches)
-      .set({ status: "reverted", revertedAt: new Date(), revertedBy: ctx.userId })
-      .where(eq(importBatches.id, batch.id));
-    await recordAudit(tx, ctx, {
-      action: "import.reverted",
-      projectId: batch.projectId,
-      entityType: "import_batch",
-      entityId: batch.id,
-      before: { status: "committed", inserted: batch.inserted },
-      after: { status: "reverted", removed: removed.length },
-    });
-    return { removed: removed.length };
+/** `approved` is set only by the approvals service when executing an approved request. */
+export async function commitImportTx(tx: Executor, ctx: ServiceContext, batchId: string, opts: { approved: boolean }) {
+  const batch = await loadBatch(tx, ctx, batchId, { forUpdate: true });
+  if (batch.status !== "previewed") throw invalid("This import has already been committed.");
+  await assertCanImportInto(tx, ctx, batch.projectId);
+  const mapping = batchMapping(batch);
+  if (!mapping) throw invalid("Map the columns before importing.");
+  const { mappingError, rows, totals } = await buildPreview(tx, ctx, batch, mapping);
+  if (mappingError) throw invalid(mappingError);
+  if (totals.toImport > LARGE_IMPORT_ROWS && !opts.approved) {
+    throw forbidden(`Imports over ${LARGE_IMPORT_ROWS} rows need an approval. Request one from this page.`);
+  }
+
+  const toInsert = rows.filter((r) => r.status === "ok" && !r.duplicate);
+  let inserted = 0;
+  let insertedMinor = 0;
+  for (let i = 0; i < toInsert.length; i += INSERT_CHUNK) {
+    const chunk = toInsert.slice(i, i + INSERT_CHUNK);
+    const result = await tx
+      .insert(expenses)
+      .values(
+        chunk.map((r) => ({
+          workspaceId: ctx.workspaceId,
+          projectId: batch.projectId,
+          date: r.date!,
+          amountMinor: r.amountMinor!,
+          currency: r.currency,
+          merchant: r.merchant,
+          description: r.description,
+          categoryId: r.categoryId,
+          paymentAccount: r.account,
+          source: "csv" as const,
+          importBatchId: batch.id,
+          dedupeHash: r.dedupeHash,
+          createdBy: ctx.userId,
+        })),
+      )
+      .onConflictDoNothing()
+      .returning({ amountMinor: expenses.amountMinor });
+    inserted += result.length;
+    insertedMinor += result.reduce((s, r) => s + r.amountMinor, 0);
+  }
+
+  const errors = rows
+    .filter((r) => r.status === "error")
+    .slice(0, 100)
+    .map((r) => ({ line: r.line, message: r.errors.join("; ") }));
+  const skippedDupes = totals.duplicates + (toInsert.length - inserted);
+  const [updated] = await tx
+    .update(importBatches)
+    .set({
+      status: "committed",
+      inserted,
+      skippedDupes,
+      excluded: totals.excluded,
+      errors,
+      totalMinor: insertedMinor,
+      rawCsv: null,
+      committedAt: new Date(),
+    })
+    .where(eq(importBatches.id, batch.id))
+    .returning();
+  await recordAudit(tx, ctx, {
+    action: "import.committed",
+    projectId: batch.projectId,
+    entityType: "import_batch",
+    entityId: batch.id,
+    after: {
+      filename: batch.filename,
+      sha256: batch.fileSha256,
+      rows: totals.rows,
+      inserted,
+      skippedDupes,
+      excluded: totals.excluded,
+      errors: totals.errors,
+      totalMinor: insertedMinor,
+      currency: "USD",
+    },
   });
+  return updated;
+}
+
+/** Reverts are always gated (plan §3.5); this runs only when an approved request executes. */
+export async function revertImportTx(tx: Executor, ctx: ServiceContext, batchId: string) {
+  const batch = await loadBatch(tx, ctx, batchId, { forUpdate: true });
+  if (batch.status !== "committed") throw invalid("Only committed imports can be reverted.");
+  if (batch.projectId) await requireProjectRole(tx, ctx, batch.projectId, "lead");
+  else if (batch.createdBy !== ctx.userId && ctx.workspaceRole !== "owner") throw forbidden();
+
+  const removed = await tx
+    .update(expenses)
+    .set({ archivedAt: new Date() })
+    .where(and(eq(expenses.importBatchId, batch.id), isNull(expenses.archivedAt)))
+    .returning({ id: expenses.id });
+  await tx
+    .update(importBatches)
+    .set({ status: "reverted", revertedAt: new Date(), revertedBy: ctx.userId })
+    .where(eq(importBatches.id, batch.id));
+  await recordAudit(tx, ctx, {
+    action: "import.reverted",
+    projectId: batch.projectId,
+    entityType: "import_batch",
+    entityId: batch.id,
+    before: { status: "committed", inserted: batch.inserted },
+    after: { status: "reverted", removed: removed.length },
+  });
+  return { removed: removed.length };
 }
 
 export async function discardImport(ctx: ServiceContext, batchId: string) {

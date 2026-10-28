@@ -1,13 +1,15 @@
 import { ArrowLeft } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { PendingApprovalNotice } from "@/components/pending-approval-notice";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { db } from "@/db";
 import { orNotFound, requireAppContext } from "@/lib/authz";
 import { formatDateTime, formatMoney } from "@/lib/format";
 import { listCategories } from "@/lib/services/expenses";
-import { getImportPreview } from "@/lib/services/imports";
+import { listApprovals } from "@/lib/services/approvals";
+import { getImportPreview, LARGE_IMPORT_ROWS } from "@/lib/services/imports";
 import { getProjectAccess } from "@/lib/services/access";
 import { BatchActions } from "./batch-actions";
 import { MappingForm } from "./mapping-form";
@@ -22,8 +24,14 @@ export default async function ImportBatchPage(props: PageProps<"/expenses/import
     orNotFound(getImportPreview(db, ctx, batchId)),
     listCategories(db, ctx),
   ]);
-  const project = batch.projectId ? await getProjectAccess(db, ctx, batch.projectId) : null;
-  const canRevert = batch.projectId ? project?.role === "lead" : batch.createdBy === ctx.userId || ctx.workspaceRole === "owner";
+  const [project, pendingApprovals] = await Promise.all([
+    batch.projectId ? getProjectAccess(db, ctx, batch.projectId) : null,
+    listApprovals(db, ctx, { scope: "pending", entityType: "import_batch", entityId: batch.id }),
+  ]);
+  const canRequest = batch.projectId
+    ? project?.role === "lead" || project?.role === "editor"
+    : batch.createdBy === ctx.userId || ctx.workspaceRole === "owner";
+  const toImport = preview?.totals.toImport ?? 0;
 
   return (
     <div className="grid gap-6">
@@ -45,11 +53,15 @@ export default async function ImportBatchPage(props: PageProps<"/expenses/import
         <BatchActions
           batchId={batch.id}
           status={batch.status}
-          canCommit={!!preview && !preview.mappingError && preview.totals.toImport > 0}
-          toImport={preview?.totals.toImport ?? 0}
-          canRevert={canRevert}
+          canCommit={!!preview && !preview.mappingError && toImport > 0}
+          toImport={toImport}
+          needsApproval={toImport > LARGE_IMPORT_ROWS}
+          canRequest={canRequest}
+          hasPendingRequest={pendingApprovals.length > 0}
+          where={project?.project.name ?? "personal expenses"}
         />
       </div>
+      <PendingApprovalNotice rows={pendingApprovals} />
 
       {batch.status !== "previewed" ? (
         <Card>

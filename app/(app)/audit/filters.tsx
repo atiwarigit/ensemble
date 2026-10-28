@@ -8,6 +8,8 @@ const ACTION_GROUPS = [
   { value: "workspace.", label: "Workspace & invites" },
   { value: "project.", label: "Projects" },
   { value: "lyric.", label: "Lyrics & authorship" },
+  { value: "rights.", label: "Rights packages" },
+  { value: "approval.", label: "Approvals" },
   { value: "expense", label: "Expenses" },
   { value: "import.", label: "CSV imports" },
 ];
@@ -54,6 +56,7 @@ export function AuditFilters({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="all">All activity</SelectItem>
+          {action && !ACTION_GROUPS.some((g) => g.value === action) && <SelectItem value={action}>{action}</SelectItem>}
           {ACTION_GROUPS.map((g) => (
             <SelectItem key={g.value} value={g.value}>
               {g.label}

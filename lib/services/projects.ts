@@ -89,22 +89,64 @@ export async function updateProject(ctx: ServiceContext, projectId: string, inpu
   });
 }
 
-// Plan §3.5 gates archiving behind an approval request; that queue lands in a later milestone,
-// until then it's limited to project leads and workspace owners.
-export async function setProjectArchived(ctx: ServiceContext, projectId: string, archived: boolean) {
+/** Archiving is gated (plan §3.5) and runs only from an approved request; unarchiving is direct. */
+export async function archiveProjectTx(tx: Executor, ctx: ServiceContext, projectId: string) {
+  const { project } = await requireProjectRole(tx, ctx, projectId, "lead");
+  if (project.archivedAt) throw invalid("This project is already archived.");
+  const archivedAt = new Date();
+  await tx.update(projects).set({ archivedAt }).where(eq(projects.id, projectId));
+  await recordAudit(tx, ctx, {
+    action: "project.archived",
+    projectId,
+    entityType: "project",
+    entityId: projectId,
+    before: { archivedAt: null },
+    after: { archivedAt },
+  });
+  return { archivedAt };
+}
+
+export async function unarchiveProject(ctx: ServiceContext, projectId: string) {
   return db.transaction(async (tx) => {
     const { project } = await requireProjectRole(tx, ctx, projectId, "lead");
-    const archivedAt = archived ? new Date() : null;
-    await tx.update(projects).set({ archivedAt }).where(eq(projects.id, projectId));
+    if (!project.archivedAt) return;
+    await tx.update(projects).set({ archivedAt: null }).where(eq(projects.id, projectId));
     await recordAudit(tx, ctx, {
-      action: archived ? "project.archived" : "project.unarchived",
+      action: "project.unarchived",
       projectId,
       entityType: "project",
       entityId: projectId,
       before: { archivedAt: project.archivedAt },
-      after: { archivedAt },
+      after: { archivedAt: null },
     });
   });
+}
+
+/**
+ * Turning lyric access for AI models on is gated (runs from an approved request); turning it off is
+ * always allowed for a lead, since it only reduces exposure.
+ */
+export async function setAllowLlmOnLyricsTx(tx: Executor, ctx: ServiceContext, projectId: string, allow: boolean) {
+  const { project } = await requireProjectRole(tx, ctx, projectId, "lead");
+  const before = project.settings.allow_llm_on_lyrics ?? false;
+  if (before === allow) return { allow };
+  await tx
+    .update(projects)
+    .set({ settings: { ...project.settings, allow_llm_on_lyrics: allow } })
+    .where(eq(projects.id, projectId));
+  await recordAudit(tx, ctx, {
+    action: allow ? "project.llm_on_lyrics.enabled" : "project.llm_on_lyrics.disabled",
+    projectId,
+    entityType: "project",
+    entityId: projectId,
+    before: { allow_llm_on_lyrics: before },
+    after: { allow_llm_on_lyrics: allow },
+  });
+  return { allow };
+}
+
+export async function disableLlmOnLyrics(ctx: ServiceContext, projectId: string) {
+  return db.transaction((tx) => setAllowLlmOnLyricsTx(tx, ctx, projectId, false));
 }
 
 export async function listProjectMembers(exec: Executor, ctx: ServiceContext, projectId: string) {

@@ -13,7 +13,7 @@ import {
   updateExpense,
   upsertBudget,
 } from "@/lib/services/expenses";
-import { commitImport, createImport, discardImport, revertImport, updateImportMapping } from "@/lib/services/imports";
+import { commitImport, createImport, discardImport, updateImportMapping } from "@/lib/services/imports";
 
 const str = (form: FormData, key: string) => {
   const v = form.get(key);
@@ -100,12 +100,6 @@ export async function commitImportAction(batchId: string) {
     const b = await commitImport(ctx, batchId);
     return { inserted: b.inserted, skipped: b.skippedDupes };
   });
-  revalidatePath("/expenses", "layout");
-  return result;
-}
-
-export async function revertImportAction(batchId: string) {
-  const result = await runAction(({ ctx }) => revertImport(ctx, batchId));
   revalidatePath("/expenses", "layout");
   return result;
 }
