@@ -14,7 +14,8 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
     "db:reset": "tsx scripts/reset-db.ts && pnpm db:migrate && pnpm db:seed",
-    "totp": "tsx scripts/totp.ts"
+    "totp": "tsx scripts/totp.ts",
+    "verify:restore": "tsx scripts/verify-restore.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.90",

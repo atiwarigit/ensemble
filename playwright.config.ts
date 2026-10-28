@@ -18,6 +18,16 @@ const llmEnv: Record<string, string> = USING_MOCK_LLM
     }
   : {};
 
+/** The Spotify Web API is always mocked in e2e; real credentials would hit Spotify's per-developer quota. */
+export const MOCK_SPOTIFY_URL = `http://localhost:${process.env.MOCK_SPOTIFY_PORT ?? 4120}`;
+export const E2E_CRON_SECRET = "e2e-cron-secret";
+const spotifyEnv = {
+  SPOTIFY_CLIENT_ID: "mock-client",
+  SPOTIFY_CLIENT_SECRET: "mock-secret",
+  SPOTIFY_API_BASE: MOCK_SPOTIFY_URL,
+  SPOTIFY_ACCOUNTS_BASE: MOCK_SPOTIFY_URL,
+};
+
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: false,
@@ -41,6 +51,12 @@ export default defineConfig({
           env: { MOCK_LLM_PORT: new URL(MOCK_LLM_URL).port },
         },
         {
+          command: `node tests/mocks/spotify-server.mjs`,
+          url: `${MOCK_SPOTIFY_URL}/health`,
+          reuseExistingServer: !process.env.CI,
+          env: { MOCK_SPOTIFY_PORT: new URL(MOCK_SPOTIFY_URL).port },
+        },
+        {
           command: `pnpm exec next dev --port ${PORT}`,
           url: `${baseURL}/sign-in`,
           reuseExistingServer: !process.env.CI,
@@ -50,6 +66,8 @@ export default defineConfig({
             BETTER_AUTH_URL: baseURL,
             NEXT_PUBLIC_APP_URL: baseURL,
             NEXT_DIST_DIR: ".next-e2e",
+            CRON_SECRET: E2E_CRON_SECRET,
+            ...spotifyEnv,
             ...llmEnv,
           },
         },

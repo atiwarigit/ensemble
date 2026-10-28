@@ -2,6 +2,8 @@
 
 import {
   AudioWaveform,
+  BarChart3,
+  Bell,
   Bot,
   ChevronsUpDown,
   FileText,
@@ -12,6 +14,7 @@ import {
   MessageSquare,
   Receipt,
   ScrollText,
+  Server,
   ShieldCheck,
   Users,
 } from "lucide-react";
@@ -41,7 +44,7 @@ import {
 } from "@/components/ui/sidebar";
 import { authClient } from "@/lib/auth-client";
 
-const ICONS = { LayoutDashboard, FolderKanban, FileText, Inbox, Receipt, ScrollText, Users, ShieldCheck, MessageSquare, Bot } as const;
+const ICONS = { LayoutDashboard, FolderKanban, FileText, Inbox, Receipt, ScrollText, Users, ShieldCheck, MessageSquare, Bot, BarChart3, Bell, Server } as const;
 export type NavIcon = keyof typeof ICONS;
 export type NavItem = { title: string; href: string; icon: NavIcon; badge?: number };
 

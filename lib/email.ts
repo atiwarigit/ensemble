@@ -21,3 +21,21 @@ export async function sendInviteEmail(opts: { to: string; url: string; inviterNa
   }
   return true;
 }
+
+/** Operational alerts (e.g. an audit-chain break). Returns how many recipients were emailed. */
+export async function sendAlertEmail(opts: { to: string[]; subject: string; text: string }) {
+  const key = process.env.RESEND_API_KEY;
+  const from = process.env.EMAIL_FROM;
+  const to = [...new Set(opts.to.filter(Boolean))];
+  if (!key || !from || to.length === 0) return 0;
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ from, to, subject: opts.subject, text: opts.text }),
+  });
+  if (!res.ok) {
+    console.error("Alert email failed", res.status, await res.text().catch(() => ""));
+    return 0;
+  }
+  return to.length;
+}

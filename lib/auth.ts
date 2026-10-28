@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
+import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import { getSessionCookie } from "better-auth/cookies";
 import { nextCookies } from "better-auth/next-js";
 import { twoFactor } from "better-auth/plugins";
@@ -10,6 +10,7 @@ import { account, session, twoFactor as twoFactorTable, user, verification } fro
 import { getWorkspaceMembership } from "@/lib/services/access";
 import { recordSystemAudit } from "@/lib/services/audit";
 import { MIN_PASSWORD_LENGTH } from "@/lib/services/invites";
+import { hashKey, hitRateLimit, LIMITS, peekRateLimit, retryText, type RateLimit } from "@/lib/rate-limit";
 
 const AUDITED_PATHS: Record<string, string> = {
   "/sign-in/email": "auth.signed_in",
@@ -29,6 +30,36 @@ function requestMeta(headers: Headers | undefined) {
     ip: headers?.get("x-forwarded-for")?.split(",")[0]?.trim() ?? headers?.get("x-real-ip") ?? null,
     userAgent: headers?.get("user-agent") ?? null,
   };
+}
+
+const TOTP_PATHS = new Set(["/two-factor/verify-totp", "/two-factor/verify-backup-code"]);
+
+const emailOf = (body: unknown) => {
+  const v = (body as { email?: unknown } | undefined)?.email;
+  return typeof v === "string" ? v.toLowerCase() : "";
+};
+const failureKey = (ip: string | null, body: unknown) => `signin:fail:${hashKey(ip, emailOf(body))}`;
+
+async function enforceAuthRateLimits(path: string, headers: Headers | undefined, body: unknown) {
+  if (path !== "/sign-in/email" && !TOTP_PATHS.has(path)) return;
+  const { ip, userAgent } = requestMeta(headers);
+  const results: [RateLimit, { ok: boolean; retryAfter: number }][] = [];
+  if (path === "/sign-in/email") {
+    results.push([LIMITS.signInFailuresPerEmail, await peekRateLimit(failureKey(ip, body), LIMITS.signInFailuresPerEmail)]);
+    results.push([LIMITS.signInPerIp, await hitRateLimit(`signin:ip:${hashKey(ip)}`, LIMITS.signInPerIp)]);
+  } else {
+    // The pending-2FA cookie (or the session cookie, when enrolling) identifies the attempt.
+    results.push([LIMITS.totpPerAttempt, await hitRateLimit(`totp:${hashKey(ip, headers?.get("cookie"))}`, LIMITS.totpPerAttempt)]);
+  }
+  const blocked = results.find(([, r]) => !r.ok);
+  if (!blocked) return;
+  const [limit, r] = blocked;
+  await recordSystemAudit(db, { ip, userAgent, workspaceId: await workspaceForEmail(emailOf(body) || null) }, {
+    action: "auth.rate_limited",
+    entityType: "user",
+    after: { path, email: emailOf(body) || null, limit: limit.limit, windowSec: limit.windowSec },
+  });
+  throw new APIError("TOO_MANY_REQUESTS", { message: `Too many attempts. Try again ${retryText(r.retryAfter)}.` });
 }
 
 export const auth = betterAuth({
@@ -57,6 +88,7 @@ export const auth = betterAuth({
   hooks: {
     // Sign-out is audited before it runs: afterwards the session (and so the actor) is gone.
     before: createAuthMiddleware(async (ctx) => {
+      await enforceAuthRateLimits(ctx.path, ctx.request?.headers ?? ctx.headers, ctx.body);
       if (ctx.path !== "/sign-out") return;
       const current = await getSessionFromCtx(ctx).catch(() => null);
       if (!current) return;
@@ -74,6 +106,9 @@ export const auth = betterAuth({
 
       if (ctx.path === "/sign-in/email" && failed) {
         const email = typeof ctx.body?.email === "string" ? ctx.body.email.toLowerCase() : null;
+        if ((returned as { status?: unknown }).status !== "TOO_MANY_REQUESTS") {
+          await hitRateLimit(failureKey(meta.ip, ctx.body), LIMITS.signInFailuresPerEmail);
+        }
         await recordSystemAudit(
           db,
           { ...meta, workspaceId: await workspaceForEmail(email) },

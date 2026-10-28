@@ -30,7 +30,11 @@ function planTools(text) {
   }
   if (title && /\b(history|versions?)\b/.test(t)) calls.push({ name: "lyrics_lyricHistory", input: { title } });
   if (title && /\bfinali[sz]e\b/.test(t)) calls.push({ name: "lyrics_requestFinalization", input: { title } });
-  if (/\b(streams?|listeners?|trend|analytics|spotify)\b/.test(t)) calls.push({ name: "analytics_getTrends", input: {} });
+  if (/\b(streams?|listeners?|trend|analytics|spotify)\b/.test(t)) {
+    if (/\b(why|explain|jump(ed)?|drop(ped)?|spike)\b/.test(t)) calls.push({ name: "analytics_explainChange", input: {} });
+    else if (/\b(songs?|tracks?|compare)\b/.test(t)) calls.push({ name: "analytics_compareTracks", input: {} });
+    else calls.push({ name: "analytics_getTrends", input: {} });
+  }
   return calls;
 }
 

@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { runChatTurn, textOf } from "@/lib/agents/coordinator";
 import type { ChatUIMessage } from "@/lib/agents/chat-types";
 import { getApiContext } from "@/lib/authz";
+import { hitRateLimit, LIMITS, retryText } from "@/lib/rate-limit";
 import { getThread, loadMessages, saveMessage, setThreadTitleIfNew } from "@/lib/services/chat";
 import { ServiceError } from "@/lib/services/context";
 import { getWorkspace } from "@/lib/services/workspace";
@@ -22,6 +23,13 @@ const body = z.object({
 export async function POST(request: Request) {
   const app = await getApiContext();
   if (!app) return Response.json({ error: "Sign in again." }, { status: 401 });
+  const limit = await hitRateLimit(`chat:${app.ctx.userId}`, LIMITS.chatPerUser);
+  if (!limit.ok) {
+    return Response.json(
+      { error: `You've sent a lot of messages in a short time. Try again ${retryText(limit.retryAfter)}.` },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfter) } },
+    );
+  }
   const parsed = body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Invalid message." }, { status: 400 });
   const { id: threadId, message } = parsed.data;

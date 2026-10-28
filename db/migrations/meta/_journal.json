@@ -64,6 +64,13 @@
       "when": 1793161882680,
       "tag": "0008_chat_agents_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793163283497,
+      "tag": "0009_analytics_hardening",
+      "breakpoints": true
     }
   ]
 }

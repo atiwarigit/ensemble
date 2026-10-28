@@ -84,6 +84,19 @@ export type ColumnMap = {
 };
 export type AmountMode = "negative_is_expense" | "positive_is_expense" | "split";
 
+export type S4aConfig = {
+  dateColumn: string | null;
+  dateFormat: string;
+  /** For period summaries without a date column (e.g. the Songs tab): the last day of the period. */
+  fixedDate: string | null;
+  /** CSV column → metric. */
+  metrics: Partial<Record<"streams" | "listeners" | "saves" | "playlist_adds" | "followers", string>>;
+  /** Column with the song name, ISRC or Spotify track URI; null for artist-level exports. */
+  trackColumn: string | null;
+  /** For single-song exports without a track column: the linked track they belong to. */
+  fixedTrackId: string | null;
+};
+
 export type ImportErrorSummary = { line: number; message: string }[];
 
 export const importBatches = pgTable(
@@ -106,6 +119,8 @@ export const importBatches = pgTable(
     columnMap: jsonb("column_map").$type<ColumnMap>(),
     dateFormat: text("date_format"),
     amountMode: text("amount_mode").$type<AmountMode>(),
+    /** Column mapping for Spotify for Artists exports (kind = 's4a'). */
+    s4aConfig: jsonb("s4a_config").$type<S4aConfig>(),
     rowCount: integer("row_count").notNull().default(0),
     inserted: integer("inserted").notNull().default(0),
     skippedDupes: integer("skipped_dupes").notNull().default(0),

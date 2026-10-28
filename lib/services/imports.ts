@@ -30,13 +30,14 @@ const INSERT_CHUNK = 500;
 
 export type ImportBatch = typeof importBatches.$inferSelect;
 
-export async function loadBatch(exec: Executor, ctx: ServiceContext, batchId: string, opts: { forUpdate?: boolean } = {}) {
+export async function loadBatch(exec: Executor, ctx: ServiceContext, batchId: string, opts: { forUpdate?: boolean; kind?: "expenses" | "s4a" } = {}) {
   const q = exec
     .select()
     .from(importBatches)
     .where(and(eq(importBatches.id, batchId), eq(importBatches.workspaceId, ctx.workspaceId)));
   const [batch] = opts.forUpdate ? await q.for("update") : await q;
   if (!batch) throw notFound("Import not found.");
+  if (opts.kind && batch.kind !== opts.kind) throw notFound("Import not found.");
   if (batch.projectId) {
     await requireProjectRole(exec, ctx, batch.projectId, "viewer");
   } else if (batch.createdBy !== ctx.userId && ctx.workspaceRole !== "owner") {
@@ -197,7 +198,7 @@ function emptyTotals(rows: number): PreviewTotals {
 }
 
 export async function getImportPreview(exec: Executor, ctx: ServiceContext, batchId: string) {
-  const batch = await loadBatch(exec, ctx, batchId);
+  const batch = await loadBatch(exec, ctx, batchId, { kind: "expenses" });
   const mapping = batchMapping(batch);
   if (batch.status !== "previewed" || !mapping) return { batch, mapping, preview: null };
   const preview = await buildPreview(exec, ctx, batch, mapping);
@@ -227,7 +228,7 @@ export async function updateImportMapping(ctx: ServiceContext, batchId: string, 
     Object.entries(data.columnMap).map(([k, v]) => [k, v && v !== "__none" ? v : null]),
   ) as ColumnMap;
   return db.transaction(async (tx) => {
-    const batch = await loadBatch(tx, ctx, batchId, { forUpdate: true });
+    const batch = await loadBatch(tx, ctx, batchId, { forUpdate: true, kind: "expenses" });
     if (batch.status !== "previewed") throw invalid("This import has already been committed.");
     await assertCanImportInto(tx, ctx, batch.projectId);
     const error = validateMapping(batch.headers, { columnMap: clean, amountMode: data.amountMode, dateFormat: data.dateFormat });
@@ -280,7 +281,7 @@ export async function pendingImportRows(exec: Executor, ctx: ServiceContext, bat
 
 /** `approved` is set only by the approvals service when executing an approved request. */
 export async function commitImportTx(tx: Executor, ctx: ServiceContext, batchId: string, opts: { approved: boolean }) {
-  const batch = await loadBatch(tx, ctx, batchId, { forUpdate: true });
+  const batch = await loadBatch(tx, ctx, batchId, { forUpdate: true, kind: "expenses" });
   if (batch.status !== "previewed") throw invalid("This import has already been committed.");
   await assertCanImportInto(tx, ctx, batch.projectId);
   const mapping = batchMapping(batch);
@@ -362,7 +363,7 @@ export async function commitImportTx(tx: Executor, ctx: ServiceContext, batchId:
 
 /** Reverts are always gated (plan §3.5); this runs only when an approved request executes. */
 export async function revertImportTx(tx: Executor, ctx: ServiceContext, batchId: string) {
-  const batch = await loadBatch(tx, ctx, batchId, { forUpdate: true });
+  const batch = await loadBatch(tx, ctx, batchId, { forUpdate: true, kind: "expenses" });
   if (batch.status !== "committed") throw invalid("Only committed imports can be reverted.");
   if (batch.projectId) await requireProjectRole(tx, ctx, batch.projectId, "lead");
   else if (batch.createdBy !== ctx.userId && ctx.workspaceRole !== "owner") throw forbidden();
@@ -389,7 +390,7 @@ export async function revertImportTx(tx: Executor, ctx: ServiceContext, batchId:
 
 export async function discardImport(ctx: ServiceContext, batchId: string) {
   return db.transaction(async (tx) => {
-    const batch = await loadBatch(tx, ctx, batchId, { forUpdate: true });
+    const batch = await loadBatch(tx, ctx, batchId, { forUpdate: true, kind: "expenses" });
     if (batch.status !== "previewed") throw invalid("Committed imports can't be discarded. Revert them instead.");
     await tx.delete(importBatches).where(eq(importBatches.id, batch.id));
     await recordAudit(tx, ctx, {
@@ -403,7 +404,7 @@ export async function discardImport(ctx: ServiceContext, batchId: string) {
 }
 
 export async function listImportBatches(exec: Executor, ctx: ServiceContext) {
-  const conds = [eq(importBatches.workspaceId, ctx.workspaceId)];
+  const conds = [eq(importBatches.workspaceId, ctx.workspaceId), eq(importBatches.kind, "expenses")];
   if (ctx.workspaceRole !== "owner") {
     const ids = await visibleProjectIds(exec, ctx, { includeArchived: true });
     conds.push(
