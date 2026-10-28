@@ -2,11 +2,12 @@ import { createHash } from "node:crypto";
 import { db } from "@/db";
 import { errorMessage } from "@/lib/errors";
 import { recordAudit } from "@/lib/services/audit";
+import { analyticsAgent } from "./analytics";
 import { financeAgent } from "./finance";
 import { lyricsAgent } from "./lyrics";
 import { qualifiedName, type Agent, type AgentId, type AgentTool, type ToolContext, type ToolResult } from "./types";
 
-export const AGENTS: Agent[] = [financeAgent, lyricsAgent];
+export const AGENTS: Agent[] = [financeAgent, lyricsAgent, analyticsAgent];
 
 export type ResolvedTool = { agent: Agent; tool: AgentTool<never>; name: string };
 

@@ -1,7 +1,7 @@
 import { getSessionCookie } from "better-auth/cookies";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/sign-in", "/invite/"];
+const PUBLIC_PATHS = ["/sign-in", "/invite/", "/api/cron/"];
 
 // Optimistic check only (cookie presence). Every page, action and route re-validates the
 // session against the database through lib/authz.

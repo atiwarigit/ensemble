@@ -19,6 +19,8 @@ import {
 import { contributorsInput, getWork, replaceContributors } from "./lyrics";
 import { archiveProjectTx, setAllowLlmOnLyricsTx } from "./projects";
 import { assertFinalizable, finalizeWorkTx, generateRightsPackage } from "./rights";
+import { commitS4aImportTx, pendingS4aPoints, revertS4aImportTx, s4aNeedsApproval } from "./s4a";
+import { getArtistLink, linkArtistTx, linkPayload, prepareLink, unlinkArtistTx } from "./spotify";
 
 export const APPROVAL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -112,6 +114,17 @@ export const APPROVAL_ACTIONS = {
       const { batch, where } = await describeBatch(exec, ctx, batchId);
       if (batch.status !== "previewed") throw invalid("This import has already been committed.");
       await assertCanImportInto(exec, ctx, batch.projectId);
+      if (batch.kind === "s4a") {
+        if (!s4aNeedsApproval(batch)) throw invalid(`Imports of ${LARGE_IMPORT_ROWS} rows or fewer don't need an approval.`);
+        const points = await pendingS4aPoints(exec, ctx, batch);
+        return {
+          projectId: batch.projectId,
+          entityType: "import_batch",
+          entityId: batch.id,
+          summary: `Import ${points} Spotify for Artists data points (${batch.rowCount} rows) from ${batch.filename} into ${where}`,
+          requiredRole: "lead",
+        };
+      }
       const rows = await pendingImportRows(exec, ctx, batch);
       if (rows <= LARGE_IMPORT_ROWS) throw invalid(`Imports of ${LARGE_IMPORT_ROWS} rows or fewer don't need an approval.`);
       return {
@@ -123,7 +136,11 @@ export const APPROVAL_ACTIONS = {
       };
     },
     async execute(exec, approver, { batchId }) {
-      const b = await commitImportTx(exec, approver, batchId, { approved: true });
+      const batch = await loadBatch(exec, approver, batchId);
+      const b =
+        batch.kind === "s4a"
+          ? await commitS4aImportTx(exec, approver, batchId, { approved: true })
+          : await commitImportTx(exec, approver, batchId, { approved: true });
       return { inserted: b.inserted, skippedDupes: b.skippedDupes };
     },
   }),
@@ -136,15 +153,19 @@ export const APPROVAL_ACTIONS = {
       if (batch.status !== "committed") throw invalid("Only committed imports can be reverted.");
       if (batch.projectId) await requireProjectRole(exec, ctx, batch.projectId, "editor");
       const total = batch.totalMinor ? ` (${formatMoney(batch.totalMinor)})` : "";
+      const what = batch.kind === "s4a" ? `${batch.inserted} Spotify for Artists data points` : `${batch.inserted} expenses${total}`;
       return {
         projectId: batch.projectId,
         entityType: "import_batch",
         entityId: batch.id,
-        summary: `Revert the import of ${batch.filename} in ${where}: remove ${batch.inserted} expenses${total}`,
+        summary: `Revert the import of ${batch.filename} in ${where}: remove ${what}`,
         requiredRole: batch.projectId ? "lead" : "owner",
       };
     },
-    execute: (exec, approver, { batchId }) => revertImportTx(exec, approver, batchId),
+    async execute(exec, approver, { batchId }) {
+      const batch = await loadBatch(exec, approver, batchId);
+      return batch.kind === "s4a" ? revertS4aImportTx(exec, approver, batchId) : revertImportTx(exec, approver, batchId);
+    },
   }),
 
   "project.archive": define({
@@ -197,6 +218,43 @@ export const APPROVAL_ACTIONS = {
       };
     },
     execute: (exec, approver, { usd }) => raiseBudgetTx(exec, approver, usd),
+  }),
+
+  "spotify.connect": define({
+    label: "Link a Spotify artist",
+    schema: linkPayload,
+    async prepare(exec, ctx, p) {
+      const project = await prepareLink(exec, ctx, p);
+      return {
+        projectId: p.projectId,
+        entityType: "project",
+        entityId: p.projectId,
+        summary: `Link the Spotify artist “${p.name}” (${p.spotifyArtistId}) to “${project.name}” and capture its public data daily`,
+        requiredRole: "owner",
+      };
+    },
+    async execute(exec, approver, p) {
+      const row = await linkArtistTx(exec, approver, p);
+      return { artistLinkId: row.id };
+    },
+  }),
+
+  "spotify.disconnect": define({
+    label: "Unlink a Spotify artist",
+    schema: z.object({ artistLinkId: z.string().uuid() }),
+    async prepare(exec, ctx, { artistLinkId }) {
+      const link = await getArtistLink(exec, ctx, artistLinkId);
+      await requireProjectRole(exec, ctx, link.projectId, "lead");
+      if (link.unlinkedAt) throw invalid("This artist is already unlinked.");
+      return {
+        projectId: link.projectId,
+        entityType: "spotify_artist",
+        entityId: link.id,
+        summary: `Unlink the Spotify artist “${link.name}” and stop the daily snapshot (history is kept)`,
+        requiredRole: "owner",
+      };
+    },
+    execute: (exec, approver, { artistLinkId }) => unlinkArtistTx(exec, approver, artistLinkId),
   }),
 } as const;
 

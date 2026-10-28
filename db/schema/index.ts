@@ -6,3 +6,4 @@ export * from "./files";
 export * from "./lyrics";
 export * from "./approvals";
 export * from "./chat";
+export * from "./analytics";

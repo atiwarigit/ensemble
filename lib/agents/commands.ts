@@ -18,7 +18,15 @@ export const COMMAND_HELP: { usage: string; description: string }[] = [
   { usage: "/lyric list [missing]", description: "Lyrics, or those still missing a final rights package" },
   { usage: '/export rights "Title"', description: "Rights package (draft or final)" },
   { usage: '/finalize "Title"', description: "Request finalization (goes to Approvals)" },
+  { usage: "/streams [days]", description: "Streaming trends with sources and dates, e.g. /streams 28" },
+  { usage: "/tracks [days]", description: "Songs ranked by streams" },
+  { usage: "/why [days]", description: "What changed in streams and what happened at the same time" },
 ];
+
+const daysFrom = (s: string) => {
+  const m = s.match(/\b(\d{1,3})\s*(d|days?)?\b/);
+  return m ? Number(m[1]) : undefined;
+};
 
 /** `"Title"`, `“Title”` or the remaining words. */
 function titleFrom(rest: string) {
@@ -85,6 +93,21 @@ function slash(text: string): CommandPlan {
       if (!title) return needTitle("/finalize", "Which lyric should be finalized?");
       return { kind: "calls", via: "slash", calls: [{ tool: "lyrics_requestFinalization", input: { title } }] };
     }
+    case "streams":
+    case "analytics":
+    case "trends": {
+      const days = daysFrom(words.join(" "));
+      return { kind: "calls", via: "slash", calls: [{ tool: "analytics_getTrends", input: days ? { days } : {} }] };
+    }
+    case "tracks":
+    case "songs": {
+      const days = daysFrom(words.join(" "));
+      return { kind: "calls", via: "slash", calls: [{ tool: "analytics_compareTracks", input: days ? { days } : {} }] };
+    }
+    case "why": {
+      const days = daysFrom(words.join(" "));
+      return { kind: "calls", via: "slash", calls: [{ tool: "analytics_explainChange", input: days ? { days } : {} }] };
+    }
     default:
       return { kind: "unknown" };
   }
@@ -107,6 +130,15 @@ function intents(text: string): CommandPlan {
   if (title && /\b(history|versions?|timeline)\b/.test(t)) calls.push({ tool: "lyrics_lyricHistory", input: { title } });
   if (title && /\b(export|rights package|rights doc)/.test(t)) calls.push({ tool: "lyrics_exportRights", input: { title } });
   if (title && /\b(new|create|start)\b.*\b(lyric|song|poem)\b/.test(t)) calls.push({ tool: "lyrics_createDraftLyric", input: { title } });
+
+  const streaming = /\b(streams?|streaming|listeners?|followers?|popularity|spotify|plays?)\b/.test(t);
+  if (streaming && /\b(why|explain|what happened|cause|drop(ped)?|spike|jump(ed)?)\b/.test(t)) {
+    calls.push({ tool: "analytics_explainChange", input: {} });
+  } else if (streaming && /\b(tracks?|songs?|compare|which|best|top)\b/.test(t)) {
+    calls.push({ tool: "analytics_compareTracks", input: {} });
+  } else if (streaming) {
+    calls.push({ tool: "analytics_getTrends", input: {} });
+  }
 
   return calls.length ? { kind: "calls", via: "intent", calls } : { kind: "unknown" };
 }

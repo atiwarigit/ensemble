@@ -37,6 +37,16 @@ function Markdown({ text }: { text: string }) {
   );
 }
 
+/** The chat route answers errors with `{ error }` JSON, which the transport passes through as the message. */
+function serverError(error: Error) {
+  try {
+    const parsed = JSON.parse(error.message) as { error?: unknown };
+    return typeof parsed.error === "string" ? parsed.error : null;
+  } catch {
+    return null;
+  }
+}
+
 function ToolStep({ name, state, output, errorText }: { name: string; state: string; output?: ToolOutput; errorText?: string }) {
   const [agent, tool] = name.split("_");
   const failed = state === "output-error" || !!output?.error;
@@ -202,7 +212,11 @@ export function ChatView({
             <Loader2 className="size-4 animate-spin" /> Working…
           </p>
         )}
-        {error && <p className="text-sm text-destructive">That message couldn&apos;t be sent. Reload the page and try again.</p>}
+        {error && (
+          <p className="text-sm text-destructive" role="alert">
+            {serverError(error) ?? "That message couldn't be sent. Reload the page and try again."}
+          </p>
+        )}
         <div ref={bottom} />
       </div>
       <form
