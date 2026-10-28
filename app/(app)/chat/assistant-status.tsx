@@ -14,7 +14,7 @@ export function AssistantStatus({ plan, overBudget }: { plan: ProviderPlan; over
     return (
       <Alert className="mb-4" data-testid="assistant-status" data-mode="commands">
         <TerminalSquare />
-        <AlertTitle>AI assistant not configured — using commands</AlertTitle>
+        <AlertTitle>{plan.reason === "no_keys" ? "AI assistant not configured" : "AI assistant turned off"} — using commands</AlertTitle>
         <AlertDescription>
           {OFF_REASON[plan.reason]} Chat still works: type <code>/help</code> for commands, or ask in plain words like “spend in
           october”.

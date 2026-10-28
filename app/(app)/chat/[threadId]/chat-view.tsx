@@ -137,7 +137,9 @@ export function ChatView({
   const { messages, sendMessage, status, error } = useChat<ChatUIMessage>({ id: threadId, messages: initialMessages, transport });
   const busy = status === "submitted" || status === "streaming";
   const bottom = useRef<HTMLDivElement>(null);
-  useEffect(() => bottom.current?.scrollIntoView({ block: "end" }), [messages.length, status]);
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ block: "end" });
+  }, [messages.length, status]);
 
   const send = (text: string) => {
     if (!text.trim() || busy) return;

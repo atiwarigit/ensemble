@@ -8,6 +8,8 @@ import { chatMessages, llmCalls, lyricSuggestions } from "@/db/schema/chat";
 import { workspaces } from "@/db/schema/tenancy";
 import type { ChatUIMessage } from "@/lib/agents/chat-types";
 import { runChatTurn } from "@/lib/agents/coordinator";
+import { getAiSettings, lowerBudget } from "@/lib/services/ai-settings";
+import { decideApproval, requestApproval } from "@/lib/services/approvals";
 import { createThread, loadMessages, saveMessage } from "@/lib/services/chat";
 import type { ServiceContext } from "@/lib/services/context";
 import { createExpense, listCategories, seedDefaultCategories } from "@/lib/services/expenses";
@@ -179,6 +181,21 @@ describe("coordinator chat", () => {
     await db.update(workspaces).set({ settings: { llm_provider: "off" } }).where(eq(workspaces.id, ws.id));
     const r3 = await turn(owner, thread.id, "What did we spend this month?");
     expect(r3.meta).toMatchObject({ mode: "commands", notice: null });
+  });
+
+  it("raises the budget only through an approval, and lowers it directly", async () => {
+    const { owner, nikki } = await setup();
+    const admin = await createMember(owner.workspaceId, "admin", "Ada");
+    await expect(lowerBudget(nikki, 1)).rejects.toThrow();
+    await lowerBudget(owner, 10);
+    expect((await getAiSettings(db, owner)).budgetUsd).toBe(10);
+    await expect(requestApproval(nikki, "llm.budget.raise", { usd: 50 })).rejects.toThrow();
+    await expect(requestApproval(admin, "llm.budget.raise", { usd: 5 })).rejects.toThrow(/Lower it directly/);
+    const req = await requestApproval(admin, "llm.budget.raise", { usd: 50 });
+    await expect(decideApproval(admin, req.id, { decision: "approve" })).rejects.toThrow(/owner/);
+    expect((await getAiSettings(db, owner)).budgetUsd).toBe(10);
+    await decideApproval(owner, req.id, { decision: "approve" });
+    expect((await getAiSettings(db, owner)).budgetUsd).toBe(50);
   });
 
   it("keeps lyrics private unless the project allows AI access, and suggestions need a person to accept", async () => {
