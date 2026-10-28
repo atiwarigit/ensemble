@@ -186,7 +186,7 @@ async function attemptLlm(
   const started = Date.now();
   let streamError: unknown = null;
   const result = streamText({
-    model: languageModel(provider),
+    model: await languageModel(provider),
     instructions: instructions(input, projectContext),
     messages: [...historyMessages(input.history), { role: "user", content: textOf(input.message) }],
     tools: buildTools(tc, state),

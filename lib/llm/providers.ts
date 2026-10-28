@@ -1,5 +1,3 @@
-import { createAnthropic } from "@ai-sdk/anthropic";
-import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 import type { LlmPreference } from "@/db/schema/tenancy";
 
@@ -58,10 +56,17 @@ export function planProviders(workspacePref: LlmPreference | undefined): Provide
   return { order: [primary, ...configured.filter((s) => s.id !== primary.id)], reason: "ok" };
 }
 
-export function languageModel(p: ProviderStatus): LanguageModel {
+/**
+ * The SDKs are imported lazily: each builds a default client from the environment at import time and
+ * throws if *_BASE_URL is set but empty, which would break pages that never call a model.
+ */
+export async function languageModel(p: ProviderStatus): Promise<LanguageModel> {
+  for (const k of ["ANTHROPIC_BASE_URL", "OPENAI_BASE_URL"]) if (process.env[k] === "") delete process.env[k];
   if (p.id === "anthropic") {
+    const { createAnthropic } = await import("@ai-sdk/anthropic");
     return createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: p.baseURL })(p.model);
   }
+  const { createOpenAI } = await import("@ai-sdk/openai");
   return createOpenAI({ apiKey: process.env.OPENAI_API_KEY, baseURL: p.baseURL })(p.model);
 }
 

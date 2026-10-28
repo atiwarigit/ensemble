@@ -76,6 +76,11 @@ are asked to enrol an authenticator app on first sign-in. For local testing,
 | `SEED_PASSWORD` | prod seed | Initial password for seeded users. Required when `NODE_ENV=production`. |
 | `REQUIRE_2FA_FOR_ADMINS` | no | Default `true`. |
 | `RESEND_API_KEY`, `EMAIL_FROM` | no | Send invite emails. Without them, admins copy the invite link. |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | no | Either, both or neither. With neither, chat runs slash commands. |
+| `ANTHROPIC_MODEL`, `OPENAI_MODEL` | no | Defaults `claude-sonnet-5-5`, `gpt-6-luna`. |
+| `LLM_PROVIDER` | no | `anthropic`, `openai` or `none`; overrides the workspace setting. |
+| `LLM_MONTHLY_BUDGET_USD` | no | Default monthly cap per workspace (estimated cost), default `25`. |
+| `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` | tests | Point the SDKs at the mock in `tests/mocks/llm-server.mjs`. |
 | `TEST_DATABASE_URL`, `E2E_DATABASE_URL` | tests | Separate databases for Vitest and Playwright. |
 
 ## Deploying to Vercel + Neon
@@ -203,6 +208,7 @@ validated payload, and run only when someone approves it. The action registry is
 | `import.revert`: revert any import | editor, or the uploader for personal imports | project lead, or owner for personal imports |
 | `project.archive` | project lead | workspace owner |
 | `project.allow_llm_on_lyrics`: let AI models read the project's lyrics | project lead | workspace owner |
+| `llm.budget.raise`: raise the monthly AI budget | admin | workspace owner |
 
 - On approval, the payload is re-validated against current state and executed under the
   **approver's** identity, inside a savepoint. If it no longer applies (for example, the import was
