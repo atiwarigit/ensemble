@@ -36,6 +36,20 @@
       "when": 1793157582961,
       "tag": "0004_lyric_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793159100143,
+      "tag": "0005_approvals_rights",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793159100752,
+      "tag": "0006_approvals_rights_triggers",
+      "breakpoints": true
     }
   ]
 }

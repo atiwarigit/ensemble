@@ -13,9 +13,11 @@ export async function storeFile(
   exec: Executor,
   ctx: ServiceContext,
   input: { filename: string; contentType: string; bytes: Uint8Array },
+  opts: { maxBytes?: number } = {},
 ) {
+  const max = opts.maxBytes ?? MAX_FILE_BYTES;
   if (input.bytes.byteLength === 0) throw invalid("The file is empty.");
-  if (input.bytes.byteLength > MAX_FILE_BYTES) throw invalid("Files must be 10 MB or smaller.");
+  if (input.bytes.byteLength > max) throw invalid(`Files must be ${Math.round(max / 1024 / 1024)} MB or smaller.`);
   const [file] = await exec
     .insert(storedFiles)
     .values({

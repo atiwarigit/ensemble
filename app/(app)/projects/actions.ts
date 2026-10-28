@@ -5,8 +5,9 @@ import { runAction } from "@/lib/authz";
 import {
   createProject,
   removeProjectMember,
-  setProjectArchived,
+  disableLlmOnLyrics,
   setProjectMember,
+  unarchiveProject,
   updateProject,
 } from "@/lib/services/projects";
 
@@ -33,12 +34,15 @@ export async function updateProjectAction(projectId: string, form: FormData) {
   return result;
 }
 
-export async function setArchivedAction(projectId: string, archived: boolean) {
-  const result = await runAction(
-    ({ ctx }) => setProjectArchived(ctx, projectId, archived),
-    archived ? "Project archived." : "Project restored.",
-  );
+export async function unarchiveProjectAction(projectId: string) {
+  const result = await runAction(({ ctx }) => unarchiveProject(ctx, projectId), "Project restored.");
   revalidatePath("/", "layout");
+  return result;
+}
+
+export async function disableLlmOnLyricsAction(projectId: string) {
+  const result = await runAction(({ ctx }) => disableLlmOnLyrics(ctx, projectId), "AI access to lyrics turned off.");
+  revalidatePath(`/projects/${projectId}`, "layout");
   return result;
 }
 

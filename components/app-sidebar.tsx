@@ -4,6 +4,7 @@ import {
   AudioWaveform,
   ChevronsUpDown,
   FileText,
+  Inbox,
   FolderKanban,
   LayoutDashboard,
   LogOut,
@@ -31,14 +32,16 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
 import { authClient } from "@/lib/auth-client";
 
-const ICONS = { LayoutDashboard, FolderKanban, FileText, Receipt, ScrollText, Users, ShieldCheck } as const;
+const ICONS = { LayoutDashboard, FolderKanban, FileText, Inbox, Receipt, ScrollText, Users, ShieldCheck } as const;
 export type NavIcon = keyof typeof ICONS;
+export type NavItem = { title: string; href: string; icon: NavIcon; badge?: number };
 
 export function AppSidebar({
   workspaceName,
@@ -50,14 +53,14 @@ export function AppSidebar({
   workspaceName: string;
   user: { name: string; email: string };
   role: string;
-  main: { title: string; href: string; icon: NavIcon }[];
-  settings: { title: string; href: string; icon: NavIcon }[];
+  main: NavItem[];
+  settings: NavItem[];
 }) {
   const pathname = usePathname();
   const router = useRouter();
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
 
-  const renderItems = (items: { title: string; href: string; icon: NavIcon }[]) =>
+  const renderItems = (items: NavItem[]) =>
     items.map((item) => {
       const Icon = ICONS[item.icon];
       return (
@@ -68,6 +71,7 @@ export function AppSidebar({
               <span>{item.title}</span>
             </Link>
           </SidebarMenuButton>
+          {!!item.badge && <SidebarMenuBadge data-testid={`nav-badge-${item.href.slice(1)}`}>{item.badge}</SidebarMenuBadge>}
         </SidebarMenuItem>
       );
     });

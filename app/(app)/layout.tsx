@@ -1,21 +1,23 @@
-import { AppSidebar, type NavIcon } from "@/components/app-sidebar";
+import { AppSidebar, type NavItem } from "@/components/app-sidebar";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { db } from "@/db";
 import { requireAppContext } from "@/lib/authz";
+import { countAwaitingMe } from "@/lib/services/approvals";
 import { getWorkspace } from "@/lib/services/workspace";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const { user, ctx } = await requireAppContext();
-  const workspace = await getWorkspace(db, ctx);
+  const [workspace, awaiting] = await Promise.all([getWorkspace(db, ctx), countAwaitingMe(db, ctx)]);
 
-  const main: { title: string; href: string; icon: NavIcon }[] = [
+  const main: NavItem[] = [
     { title: "Dashboard", href: "/", icon: "LayoutDashboard" },
     { title: "Projects", href: "/projects", icon: "FolderKanban" },
     { title: "Lyrics", href: "/lyrics", icon: "FileText" },
     { title: "Expenses", href: "/expenses", icon: "Receipt" },
+    { title: "Approvals", href: "/approvals", icon: "Inbox", badge: awaiting },
     { title: "Audit log", href: "/audit", icon: "ScrollText" },
   ];
-  const settings: { title: string; href: string; icon: NavIcon }[] = [
+  const settings: NavItem[] = [
     { title: "Members", href: "/settings/members", icon: "Users" },
     { title: "Security", href: "/settings/security", icon: "ShieldCheck" },
   ];

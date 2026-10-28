@@ -1,8 +1,9 @@
 "use client";
 
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Loader2, Plus, Send, Trash2 } from "lucide-react";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
+import { RequestApprovalButton } from "@/components/request-approval-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -17,14 +18,17 @@ type Row = { name: string; userId: string | null; role: Role; sharePct: number; 
 
 export function ContributorsEditor({
   workId,
-  editable,
+  mode,
   initial,
   members,
+  hasPendingRequest = false,
 }: {
   workId: string;
-  editable: boolean;
+  /** `request`: the work is final, so saving sends the new split for approval instead. */
+  mode: "readonly" | "direct" | "request";
   initial: Row[];
   members: { id: string; name: string }[];
+  hasPendingRequest?: boolean;
 }) {
   const [rows, setRows] = useState<Row[]>(initial);
   const [pending, startTransition] = useTransition();
@@ -33,7 +37,7 @@ export function ContributorsEditor({
   const dirty = normalize(rows) !== normalize(initial);
   const unlisted = members.filter((m) => !rows.some((r) => r.userId === m.id));
 
-  if (!editable) {
+  if (mode === "readonly") {
     return (
       <ul className="grid gap-2 text-sm" data-testid="contributors">
         {initial.map((r) => (
@@ -130,20 +134,33 @@ export function ContributorsEditor({
         <span className={cn("text-sm tabular-nums", total !== 100 && "text-destructive")} data-testid="share-total">
           Total {total}%
         </span>
-        <Button
-          size="sm"
-          disabled={!dirty || pending}
-          onClick={() =>
-            startTransition(async () => {
-              const r = await saveContributorsAction(workId, rows);
-              if (r.ok) toast.success(r.message);
-              else toast.error(r.error);
-            })
-          }
-        >
-          {pending && <Loader2 className="animate-spin" />}
-          Save split
-        </Button>
+        {mode === "request" ? (
+          <RequestApprovalButton
+            actionType="lyric.contributors.change"
+            payload={{ workId, contributors: rows }}
+            size="sm"
+            disabled={!dirty || hasPendingRequest}
+            title="Request a split change"
+            description="This work is final, so a project lead or workspace owner has to approve the new split. Approval issues a new final rights package."
+          >
+            <Send /> {hasPendingRequest ? "Change requested" : "Request change"}
+          </RequestApprovalButton>
+        ) : (
+          <Button
+            size="sm"
+            disabled={!dirty || pending}
+            onClick={() =>
+              startTransition(async () => {
+                const r = await saveContributorsAction(workId, rows);
+                if (r.ok) toast.success(r.message);
+                else toast.error(r.error);
+              })
+            }
+          >
+            {pending && <Loader2 className="animate-spin" />}
+            Save split
+          </Button>
+        )}
       </div>
     </div>
   );

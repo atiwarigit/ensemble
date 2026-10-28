@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { db } from "@/db";
 import { runAction } from "@/lib/authz";
 import {
   addEvidence,
@@ -12,6 +13,7 @@ import {
   updateWork,
   type ContributorsInput,
 } from "@/lib/services/lyrics";
+import { generateDraftPackage } from "@/lib/services/rights";
 
 const str = (form: FormData, key: string) => {
   const v = form.get(key);
@@ -95,6 +97,15 @@ export async function logGenerationAction(workId: string, form: FormData) {
       }),
     "Generation logged.",
   );
+  revalidatePath(`/lyrics/${workId}`, "layout");
+  return result;
+}
+
+export async function generateDraftPackageAction(workId: string) {
+  const result = await runAction(async ({ ctx }) => {
+    const pkg = await db.transaction((tx) => generateDraftPackage(tx, ctx, workId));
+    return { id: pkg.id };
+  }, "Draft package generated.");
   revalidatePath(`/lyrics/${workId}`, "layout");
   return result;
 }

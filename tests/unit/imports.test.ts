@@ -11,9 +11,16 @@ import {
   seedDefaultCategories,
   upsertBudget,
 } from "@/lib/services/expenses";
-import { commitImport, createImport, getImportPreview, revertImport } from "@/lib/services/imports";
+import { decideApproval, requestApproval } from "@/lib/services/approvals";
+import type { ServiceContext } from "@/lib/services/context";
+import { commitImport, createImport, getImportPreview } from "@/lib/services/imports";
 import { createProject, setProjectMember } from "@/lib/services/projects";
 import { createMember, createWorkspace } from "./fixtures";
+
+async function revertViaApproval(requester: ServiceContext, approver: ServiceContext, batchId: string) {
+  const req = await requestApproval(requester, "import.revert", { batchId });
+  return decideApproval(approver, req.id, { decision: "approve" });
+}
 
 const sample = (name: string) => new Uint8Array(readFileSync(path.join(import.meta.dirname, "../../samples/bank-csv", name)));
 
@@ -83,16 +90,17 @@ describe("CSV import service", () => {
     const committed = await commitImport(owner, batch.id);
     expect(committed.inserted).toBeGreaterThan(0);
 
-    const { removed } = await revertImport(owner, batch.id);
-    expect(removed).toBe(committed.inserted);
+    const decided = await revertViaApproval(owner, owner, batch.id);
+    expect(decided.status).toBe("executed");
+    expect((decided.result as { removed: number }).removed).toBe(committed.inserted);
     expect((await listExpenses(db, owner, { projectId: project.id })).count).toBe(0);
-    await expect(revertImport(owner, batch.id)).rejects.toMatchObject({ code: "invalid" });
+    await expect(requestApproval(owner, "import.revert", { batchId: batch.id })).rejects.toMatchObject({ code: "invalid" });
 
     const retry = await createImport(owner, { filename: "amex.csv", bytes, projectId: project.id });
     expect((await commitImport(owner, retry.batch.id)).inserted).toBe(committed.inserted);
   });
 
-  it("only project leads can revert, and editors can import", async () => {
+  it("editors can import and request a revert, but only a lead or owner can approve it", async () => {
     const { owner, nikki, project } = await setup();
     await setProjectMember(owner, project.id, { userId: nikki.userId, role: "editor" });
     const { batch } = await createImport(nikki, {
@@ -101,8 +109,9 @@ describe("CSV import service", () => {
       projectId: project.id,
     });
     await commitImport(nikki, batch.id);
-    await expect(revertImport(nikki, batch.id)).rejects.toMatchObject({ code: "forbidden" });
-    await expect(revertImport(owner, batch.id)).resolves.toBeTruthy();
+    const req = await requestApproval(nikki, "import.revert", { batchId: batch.id }, "Wrong project");
+    await expect(decideApproval(nikki, req.id, { decision: "approve" })).rejects.toMatchObject({ code: "forbidden" });
+    await expect(decideApproval(owner, req.id, { decision: "approve" })).resolves.toMatchObject({ status: "executed" });
   });
 
   it("hides imports into projects the caller can't see", async () => {

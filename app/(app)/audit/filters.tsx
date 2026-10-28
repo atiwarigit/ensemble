@@ -8,6 +8,8 @@ const ACTION_GROUPS = [
   { value: "workspace.", label: "Workspace & invites" },
   { value: "project.", label: "Projects" },
   { value: "lyric.", label: "Lyrics & authorship" },
+  { value: "rights.", label: "Rights packages" },
+  { value: "approval.", label: "Approvals" },
   { value: "expense", label: "Expenses" },
   { value: "import.", label: "CSV imports" },
 ];
