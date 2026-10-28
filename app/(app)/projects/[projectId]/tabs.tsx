@@ -9,6 +9,7 @@ export function ProjectTabs({ projectId, canManage }: { projectId: string; canMa
   const base = `/projects/${projectId}`;
   const tabs = [
     { href: base, label: "Overview" },
+    { href: `/expenses?project=${projectId}`, label: "Expenses" },
     { href: `${base}/activity`, label: "Activity" },
     ...(canManage ? [{ href: `${base}/settings`, label: "Settings" }] : []),
   ];

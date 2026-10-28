@@ -16,3 +16,14 @@ export function formatDate(d: Date | string) {
 export function humanizeAction(action: string) {
   return action.replaceAll(".", " · ").replaceAll("_", " ");
 }
+
+export function formatMoney(minor: number, currency = "USD") {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(minor / 100);
+}
+
+export function formatMonth(ym: string) {
+  const [y, m] = ym.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric", timeZone: "UTC" }).format(
+    new Date(Date.UTC(y, m - 1, 1)),
+  );
+}

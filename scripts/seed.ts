@@ -5,7 +5,9 @@ import { eq } from "drizzle-orm";
 import { db, sqlClient } from "@/db";
 import { account, user } from "@/db/schema/auth";
 import { workspaceMembers, workspaces, type WorkspaceRole } from "@/db/schema/tenancy";
+import { categorizationRules, expenseCategories } from "@/db/schema/expenses";
 import { recordSystemAudit } from "@/lib/services/audit";
+import { seedDefaultCategories } from "@/lib/services/expenses";
 
 const WORKSPACE_NAME = "dai + drm";
 const DEV_PASSWORD = "ensemble-dev-password";
@@ -43,6 +45,41 @@ async function ensureUser(
   return id;
 }
 
+const DEFAULT_RULES: [pattern: string, category: string][] = [
+  ["suno", "Generation / Suno"],
+  ["kling", "Generation / Kling"],
+  ["adobe", "Software"],
+  ["splice", "Software"],
+  ["distrokid", "Software"],
+  ["canva", "Software"],
+  ["meta ads", "Marketing"],
+  ["facebk", "Marketing"],
+  ["tiktok ads", "Marketing"],
+  ["spotify ad", "Marketing"],
+  ["delta air", "Travel"],
+  ["uber", "Travel"],
+  ["airbnb", "Travel"],
+  ["legalzoom", "Legal"],
+  ["studio", "Studio"],
+];
+
+async function seedDefaultRules(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], workspaceId: string) {
+  const existing = await tx
+    .select({ id: categorizationRules.id })
+    .from(categorizationRules)
+    .where(eq(categorizationRules.workspaceId, workspaceId))
+    .limit(1);
+  if (existing.length) return;
+  const cats = await tx.select().from(expenseCategories).where(eq(expenseCategories.workspaceId, workspaceId));
+  const fullName = (c: (typeof cats)[number]) =>
+    c.parentId ? `${cats.find((p) => p.id === c.parentId)?.name} / ${c.name}` : c.name;
+  for (const [pattern, category] of DEFAULT_RULES) {
+    const cat = cats.find((c) => fullName(c) === category);
+    if (cat) await tx.insert(categorizationRules).values({ workspaceId, pattern, categoryId: cat.id, matchField: "description" });
+  }
+  console.log(`  + ${DEFAULT_RULES.length} categorization rules`);
+}
+
 async function main() {
   const ownerEmail = (process.env.BOOTSTRAP_OWNER_EMAIL ?? "").trim().toLowerCase();
   if (!ownerEmail) throw new Error("BOOTSTRAP_OWNER_EMAIL is required");
@@ -61,6 +98,9 @@ async function main() {
       });
       console.log(`+ workspace "${WORKSPACE_NAME}"`);
     }
+
+    await seedDefaultCategories(tx, ws.id);
+    await seedDefaultRules(tx, ws.id);
 
     await ensureUser(tx, ws.id, ownerEmail, process.env.BOOTSTRAP_OWNER_NAME || "Romel", "owner", password);
     const memberEmail = (process.env.SEED_MEMBER_EMAIL ?? "").trim().toLowerCase();
