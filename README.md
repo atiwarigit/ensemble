@@ -119,8 +119,13 @@ Nothing is provisioned by this repo. To deploy:
 7. **Crons.** `vercel.json` schedules `/api/cron/spotify` (06:15 UTC), `/api/cron/audit-verify`
    (06:45) and `/api/cron/retention` (07:30). Set `CRON_SECRET` in Production; Vercel adds it to each
    cron request. The System page (owners and admins) shows the last run of each job.
-8. **Spotify (optional).** Register an app at developer.spotify.com (see "Analytics" below) and set
-   `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`.
+8. **Spotify (optional).** Signed in with a Spotify Premium account (required to own a
+   Development Mode app), open https://developer.spotify.com/dashboard → **Create app**. Give it a
+   name and description, add a redirect URI (required by the form but unused, since Ensemble uses the
+   Client Credentials flow: e.g. `https://<your-domain>/api/spotify/callback`), tick **Web API**, and
+   accept the terms. In the app's **Settings**, copy the Client ID and **View client secret**, then set
+   `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` in Vercel (Production). See "Analytics" below for
+   what Development Mode returns.
 9. Deploy. Run `pnpm db:migrate` before (or as part of) each deploy that adds migrations. After the
    first deploy, do a restore drill (`docs/backups-and-restore.md`).
 
