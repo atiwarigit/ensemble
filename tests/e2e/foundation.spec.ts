@@ -82,7 +82,9 @@ test("after being added, the member can see the project", async ({ page, browser
   await nikki.close();
 });
 
-test("owner sees the full, verified audit trail and signs in again with TOTP", async ({ page }) => {
+test("owner signs in again with TOTP and sees the full, verified audit trail", async ({ page }) => {
+  await signInAsOwner(page);
+  await signOut(page);
   await signInAsOwner(page);
   await page.goto("/audit");
   await expect(page.getByTestId("chain-status")).toContainText("Hash chain verified");
@@ -92,9 +94,12 @@ test("owner sees the full, verified audit trail and signs in again with TOTP", a
     "workspace.invite.created",
     "workspace.invite.accepted",
     "project.member.added",
+    "auth.signed_out",
+    "auth.password_verified_2fa_pending",
   ]) {
     await expect(page.getByText(action, { exact: true }).first()).toBeVisible();
   }
-  await signOut(page);
-  await signInAsOwner(page);
+  // Sequential ids with nothing hidden from the owner: no gaps that would look like deletions.
+  const ids = (await page.getByTestId("audit-id").allTextContents()).map(Number);
+  expect(ids).toEqual(Array.from({ length: ids.length }, (_, i) => ids[0] - i));
 });

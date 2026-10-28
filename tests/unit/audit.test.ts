@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { db } from "@/db";
 import { auditEvents } from "@/db/schema/audit";
-import { recordAudit, verifyAuditChain } from "@/lib/services/audit";
+import { listAuditEvents, recordAudit, recordSystemAudit, verifyAuditChain } from "@/lib/services/audit";
 import { createMember, createWorkspace } from "./fixtures";
 
 describe("audit log", () => {
@@ -17,6 +17,27 @@ describe("audit log", () => {
     const chain = await verifyAuditChain(db);
     expect(chain.ok).toBe(true);
     expect(chain.head?.id).toBe(b.id);
+  });
+
+  it("numbers events without gaps", async () => {
+    const ws = await createWorkspace();
+    const ctx = await createMember(ws.id, "owner");
+    // One transaction holds the chain lock throughout, so no other writer can interleave.
+    const [a, b] = await db.transaction(async (tx) => [
+      await recordAudit(tx, ctx, { action: "test.gap.first" }),
+      await recordAudit(tx, ctx, { action: "test.gap.second" }),
+    ]);
+    expect(b.id).toBe(a.id + 1);
+  });
+
+  it("shows unattributed events to owners only", async () => {
+    const ws = await createWorkspace();
+    const owner = await createMember(ws.id, "owner");
+    const member = await createMember(ws.id, "member");
+    const action = `test.unattributed.${ws.id}`;
+    await recordSystemAudit(db, {}, { action, after: { email: "stranger@example.com" } });
+    expect(await listAuditEvents(db, owner, { action })).toHaveLength(1);
+    expect(await listAuditEvents(db, member, { action })).toHaveLength(0);
   });
 
   it("keeps the chain ordered under concurrent writes", async () => {

@@ -42,6 +42,10 @@ CREATE TRIGGER audit_events_chain
   BEFORE INSERT ON audit_events
   FOR EACH ROW EXECUTE FUNCTION audit_events_before_insert();
 --> statement-breakpoint
+-- The trigger is the only id source; keeping the serial default would burn two sequence values per
+-- row and leave gaps that look like deleted events.
+ALTER TABLE audit_events ALTER COLUMN id DROP DEFAULT;
+--> statement-breakpoint
 CREATE OR REPLACE FUNCTION audit_events_reject_change() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN

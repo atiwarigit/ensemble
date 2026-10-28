@@ -68,7 +68,12 @@ export type AuditFilters = { projectId?: string; action?: string; beforeId?: num
  */
 export async function listAuditEvents(exec: Executor, ctx: ServiceContext, filters: AuditFilters = {}) {
   const limit = Math.min(filters.limit ?? 50, 200);
-  const conds: SQL[] = [eq(auditEvents.workspaceId, ctx.workspaceId)];
+  // Owners also see events that couldn't be tied to a workspace, e.g. sign-in attempts for unknown emails.
+  const conds: SQL[] = [
+    ctx.workspaceRole === "owner"
+      ? or(eq(auditEvents.workspaceId, ctx.workspaceId), isNull(auditEvents.workspaceId))!
+      : eq(auditEvents.workspaceId, ctx.workspaceId),
+  ];
 
   if (ctx.workspaceRole !== "owner") {
     const ids = await visibleProjectIds(exec, ctx);

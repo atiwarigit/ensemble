@@ -53,7 +53,9 @@ export function AuditTable({ rows, showProject = true }: { rows: AuditRow[]; sho
         <TableBody>
           {rows.map(({ event: e, actorName, actorEmail, projectName }) => (
             <TableRow key={e.id} data-testid="audit-row">
-              <TableCell className="font-mono text-xs text-muted-foreground">{e.id}</TableCell>
+              <TableCell className="font-mono text-xs text-muted-foreground" data-testid="audit-id">
+                {e.id}
+              </TableCell>
               <TableCell className="text-xs whitespace-nowrap">{formatDateTime(e.createdAt)}</TableCell>
               <TableCell className="text-sm">
                 <span className="inline-flex items-center gap-1.5" title={actorEmail ?? undefined}>

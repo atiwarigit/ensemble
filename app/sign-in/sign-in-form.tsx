@@ -44,7 +44,13 @@ export function SignInForm({ next, noWorkspace }: { next: string; noWorkspace: b
       ? await authClient.twoFactor.verifyBackupCode({ code })
       : await authClient.twoFactor.verifyTotp({ code });
     setPending(false);
-    if (error) return setError(error.message ?? "That code didn't work.");
+    if (error) {
+      return setError(
+        useBackup
+          ? "That backup code didn't work. Each backup code can only be used once."
+          : "That code didn't work. Codes change every 30 seconds, so enter the one your app shows now.",
+      );
+    }
     router.replace(next);
     router.refresh();
   }
