@@ -15,6 +15,9 @@ password, TOTP 2FA) · shadcn/ui + Tailwind 4 · Zod · Vitest + Playwright.
 | Workspace members, roles, invites (copy link or email via Resend) | ✅ |
 | Private projects with lead / editor / viewer membership | ✅ |
 | Append-only, hash-chained audit log with chain verification | ✅ |
+| Expenses: manual entry, categories, project or personal allocation, soft delete | ✅ |
+| Bank CSV import: column mapping, saved presets, preview, dedupe, revert | ✅ |
+| Categorization rules, budgets with alert thresholds, monthly reports, CSV export | ✅ |
 
 ## Local development
 
@@ -32,7 +35,7 @@ cp .env.example .env
 # 3. Install, migrate, seed
 pnpm install
 pnpm db:migrate
-pnpm db:seed      # workspace "dai + drm", Romel (owner) and Nikki (member)
+pnpm db:seed      # workspace "dai + drm", Romel (owner), Nikki (member), default categories and rules
 
 # 4. Run
 pnpm dev          # http://localhost:3000
@@ -109,6 +112,8 @@ db/schema, db/migrations
 lib/auth.ts          Better Auth server config (+ auth audit hooks)
 lib/authz.ts         session → ServiceContext, Server Action wrapper
 lib/services/*       the only code that writes the DB; every mutation audits in the same transaction
+lib/csv/             CSV decoding, mapping guesses, parsing, dedupe hashing (pure, unit tested)
+samples/bank-csv/    sample bank statements for import testing
 scripts/             migrate, seed, reset-db, totp
 tests/unit, tests/e2e
 ```
@@ -127,3 +132,33 @@ tests/unit, tests/e2e
 takes an advisory lock and sets `prev_hash` and `hash = sha256(prev_hash || canonical_json(row))`,
 so ordering matches commit order. `audit_verify_chain()` recomputes the chain; owners see the result on
 the Audit log page.
+
+### Expenses and CSV import
+
+- Amounts are stored as integer minor units (`amount_minor`) with a `currency` column. Only USD is
+  accepted today (`SUPPORTED_CURRENCIES` in `lib/csv/expenses-csv.ts`); rows in other currencies
+  are reported as errors rather than converted.
+- An expense belongs to a project (visible to project members) or is personal/unallocated (visible
+  to its creator and workspace owners).
+- Import flow: upload → the raw CSV is held on the `import_batches` row → map columns (a preset
+  saved for the same header signature is applied automatically) → preview → commit in one
+  transaction, which clears the raw CSV and writes one `import.committed` audit event.
+  Files are decoded as UTF-8 with a Windows-1252 fallback, and the delimiter is detected.
+- Dedupe key: `sha256(workspace, date, amount, normalized description, account last 4, occurrence)`.
+  `occurrence` is the row's index among identical rows in the same file, so two genuine identical
+  charges on one statement both import, while re-importing the file skips them.
+- Credits, refunds and transfers are excluded, not imported as negative expenses. Account numbers
+  are masked to the last 4 digits.
+- Reverting a batch archives its expenses (they stay in the DB for the audit trail) and frees their
+  dedupe keys so the file can be imported again.
+- Until the approvals queue lands, reverts and imports over 500 rows require the project lead (or a
+  workspace owner for personal imports).
+
+Sample statements for testing live in `samples/bank-csv/`:
+
+| File | Shape |
+| --- | --- |
+| `chase-checking-2026-10.csv` | Negative = spend, `MM/DD/YYYY`, includes a transfer, a refund and a duplicate charge |
+| `amex-gold-2026-10.csv` | Positive = spend, card member and account columns |
+| `capital-one-2026-q3.csv` | Separate Debit / Credit columns, ISO dates |
+| `messy-semicolon-latin1.csv` | Latin-1, `;` delimiter, `DD/MM/YYYY`, decimal commas, three bad rows |

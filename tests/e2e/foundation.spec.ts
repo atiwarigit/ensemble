@@ -62,7 +62,8 @@ test("a member can't see a project they aren't on", async ({ page }) => {
   const res = await page.goto(xaniaUrl);
   expect(res?.status()).toBe(404);
   await page.goto("/audit");
-  await expect(page.getByText("project.created")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Audit log" })).toBeVisible();
+  await expect(page.getByRole("main").getByText("Xania")).toHaveCount(0);
 });
 
 test("after being added, the member can see the project", async ({ page, browser }) => {
