@@ -14,6 +14,7 @@ import {
   type ContributorsInput,
 } from "@/lib/services/lyrics";
 import { generateDraftPackage } from "@/lib/services/rights";
+import { acceptSuggestion, dismissSuggestion } from "@/lib/services/suggestions";
 
 const str = (form: FormData, key: string) => {
   const v = form.get(key);
@@ -97,6 +98,22 @@ export async function logGenerationAction(workId: string, form: FormData) {
       }),
     "Generation logged.",
   );
+  revalidatePath(`/lyrics/${workId}`, "layout");
+  return result;
+}
+
+export async function acceptSuggestionAction(suggestionId: string, workId: string, body: string, changeNote?: string) {
+  const result = await runAction(async ({ ctx }) => {
+    const v = await acceptSuggestion(ctx, suggestionId, { body, changeNote });
+    return { versionNo: v.versionNo };
+  });
+  revalidatePath(`/lyrics/${workId}`, "layout");
+  if (!result.ok) return result;
+  return { ...result, message: `Saved as v${result.data!.versionNo}, marked as a human edit of an AI suggestion.` };
+}
+
+export async function dismissSuggestionAction(suggestionId: string, workId: string) {
+  const result = await runAction(({ ctx }) => dismissSuggestion(ctx, suggestionId), "Suggestion dismissed.");
   revalidatePath(`/lyrics/${workId}`, "layout");
   return result;
 }

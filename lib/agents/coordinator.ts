@@ -231,7 +231,7 @@ async function attemptLlm(
     writer.write(chunk);
   }
 
-  const usage = failed ? null : await Promise.resolve(result.usage).catch(() => null);
+  const usage = failed ? null : await Promise.resolve(result.totalUsage).catch(() => null);
   const tokensIn = usage?.inputTokens ?? 0;
   const tokensOut = usage?.outputTokens ?? 0;
   const costMicros = estimateCostMicros(provider.model, tokensIn, tokensOut);
