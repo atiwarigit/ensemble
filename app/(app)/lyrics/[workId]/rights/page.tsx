@@ -39,7 +39,7 @@ export default async function RightsPage(props: PageProps<"/lyrics/[workId]/righ
             <Button variant="outline" asChild>
               <Link href={`/lyrics/${work.id}`}>Back to lyric</Link>
             </Button>
-            {role !== "viewer" && m && <DraftPackageButton workId={work.id} />}
+            {role !== "viewer" && m && work.status === "draft" && <DraftPackageButton workId={work.id} />}
           </>
         }
       />

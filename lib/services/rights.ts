@@ -251,6 +251,7 @@ export async function generateRightsPackage(
 export async function generateDraftPackage(exec: Executor, ctx: ServiceContext, workId: string) {
   const { work, role } = await getWork(exec, ctx, workId);
   if (role === "viewer") throw notFound("Lyric not found.");
+  if (work.status !== "draft") throw invalid("This work is final; its final package is already issued.");
   return generateRightsPackage(exec, ctx, work, { kind: "draft" });
 }
 

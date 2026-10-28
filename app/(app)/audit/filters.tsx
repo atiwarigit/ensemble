@@ -56,6 +56,7 @@ export function AuditFilters({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="all">All activity</SelectItem>
+          {action && !ACTION_GROUPS.some((g) => g.value === action) && <SelectItem value={action}>{action}</SelectItem>}
           {ACTION_GROUPS.map((g) => (
             <SelectItem key={g.value} value={g.value}>
               {g.label}
