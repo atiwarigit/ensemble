@@ -11,6 +11,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   const main: { title: string; href: string; icon: NavIcon }[] = [
     { title: "Dashboard", href: "/", icon: "LayoutDashboard" },
     { title: "Projects", href: "/projects", icon: "FolderKanban" },
+    { title: "Lyrics", href: "/lyrics", icon: "FileText" },
     { title: "Expenses", href: "/expenses", icon: "Receipt" },
     { title: "Audit log", href: "/audit", icon: "ScrollText" },
   ];

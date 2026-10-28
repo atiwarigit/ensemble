@@ -3,6 +3,7 @@
 import {
   AudioWaveform,
   ChevronsUpDown,
+  FileText,
   FolderKanban,
   LayoutDashboard,
   LogOut,
@@ -36,7 +37,7 @@ import {
 } from "@/components/ui/sidebar";
 import { authClient } from "@/lib/auth-client";
 
-const ICONS = { LayoutDashboard, FolderKanban, Receipt, ScrollText, Users, ShieldCheck } as const;
+const ICONS = { LayoutDashboard, FolderKanban, FileText, Receipt, ScrollText, Users, ShieldCheck } as const;
 export type NavIcon = keyof typeof ICONS;
 
 export function AppSidebar({

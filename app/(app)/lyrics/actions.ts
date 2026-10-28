@@ -41,6 +41,7 @@ export async function addVersionAction(workId: string, _prev: FormState, form: F
     addVersion(ctx, workId, {
       body: str(form, "body"),
       changeNote: str(form, "changeNote"),
+      claimedWrittenAt: str(form, "claimedWrittenAt"),
       baseVersionNo: str(form, "baseVersionNo"),
     }),
   );
