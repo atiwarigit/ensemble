@@ -37,7 +37,7 @@ const pastDate = z
   .transform((v) => v || null);
 
 /** Line endings are normalised so the same text always hashes the same. */
-const lyricBody = z
+export const lyricBody = z
   .string()
   .transform((s) => s.replace(/\r\n?/g, "\n").replace(/[ \t]+$/gm, "").trim())
   .pipe(z.string().min(1, "Enter the lyrics").max(MAX_LYRIC_CHARS, "Lyrics are limited to 50,000 characters"));
@@ -65,7 +65,7 @@ export async function getWork(exec: Executor, ctx: ServiceContext, workId: strin
   return { work, project, role };
 }
 
-async function requireWorkRole(
+export async function requireWorkRole(
   exec: Executor,
   ctx: ServiceContext,
   workId: string,
@@ -77,7 +77,7 @@ async function requireWorkRole(
   return { work, project, role };
 }
 
-function assertDraft(work: Work, what: string) {
+export function assertDraft(work: Work, what: string) {
   if (work.status !== "draft") {
     throw invalid(`This work is ${work.status}, so ${what} is locked. Changes after finalizing need an approval.`);
   }
@@ -214,7 +214,7 @@ export async function updateWork(ctx: ServiceContext, workId: string, input: z.i
 // ---------------------------------------------------------------------------------------------
 // Versions
 
-async function insertVersion(
+export async function insertVersion(
   exec: Executor,
   ctx: ServiceContext,
   work: Work,

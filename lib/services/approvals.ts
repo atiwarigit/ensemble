@@ -4,8 +4,9 @@ import { db, type Executor } from "@/db";
 import { approvalRequests, type ApproverRole } from "@/db/schema/approvals";
 import { projectMembers, projects } from "@/db/schema/tenancy";
 import { formatMoney } from "@/lib/format";
+import { budgetInput, currentBudget, raiseBudgetTx } from "./ai-settings";
 import { recordAudit, recordSystemAudit } from "./audit";
-import { requireProjectRole, visibleProjectIds } from "./access";
+import { requireProjectRole, requireWorkspaceRole, visibleProjectIds } from "./access";
 import { conflict, forbidden, invalid, notFound, ServiceError, type ServiceContext } from "./context";
 import {
   assertCanImportInto,
@@ -178,6 +179,24 @@ export const APPROVAL_ACTIONS = {
       };
     },
     execute: (exec, approver, { projectId }) => setAllowLlmOnLyricsTx(exec, approver, projectId, true),
+  }),
+
+  "llm.budget.raise": define({
+    label: "Raise the AI budget",
+    schema: z.object({ usd: budgetInput }),
+    async prepare(exec, ctx, { usd }) {
+      requireWorkspaceRole(ctx, "admin");
+      const current = await currentBudget(exec, ctx.workspaceId);
+      if (usd <= current) throw invalid(`The monthly AI budget is already $${current}. Lower it directly instead.`);
+      return {
+        projectId: null,
+        entityType: "workspace",
+        entityId: ctx.workspaceId,
+        summary: `Raise the monthly AI budget from $${current} to $${usd}`,
+        requiredRole: "owner",
+      };
+    },
+    execute: (exec, approver, { usd }) => raiseBudgetTx(exec, approver, usd),
   }),
 } as const;
 
