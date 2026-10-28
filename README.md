@@ -20,6 +20,7 @@ password, TOTP 2FA) · shadcn/ui + Tailwind 4 · Zod · Vitest + Playwright.
 | Categorization rules, budgets with alert thresholds, monthly reports, CSV export | ✅ |
 | Lyrics: immutable timestamped + hashed versions, diffs, contributor splits, evidence files, AI generation log | ✅ |
 | Approvals queue for gated actions; rights documentation packages (PDF + ZIP with SHA256SUMS) | ✅ |
+| Coordinator chat with Finance and Lyrics agents; Anthropic and/or OpenAI optional, slash commands without either | ✅ |
 
 ## Local development
 
@@ -237,3 +238,40 @@ Each version in `manifest.json` names the audit event that recorded it (`auditEv
 limitation: these records prove when Ensemble recorded the text, not when it was written. The PDF
 uses the built-in Latin-1 fonts; text outside Latin-1 is exact in the `.txt` files but may not
 render in the PDF.
+
+### Coordinator chat and agents
+
+`/chat` starts a thread scoped to one project or to all of the user's projects. Threads are private
+to the person who started them. `POST /api/chat` saves the user message, then `runChatTurn`
+(`lib/agents/coordinator.ts`) streams the answer.
+
+- **Agents are tool sets.** `lib/agents/finance.ts` and `lib/agents/lyrics.ts` each expose tools
+  (`finance_summarizeSpend`, `lyrics_lyricHistory`, …) that call the same services as the UI. Tools
+  run as `actorType: "agent"` on behalf of the signed-in user, so they can never do more than that
+  user. Every call is audited as `agent.tool.called` with the agent, tool, input and result summary,
+  and each turn as `agent.coordinator.turn`. Gated actions (finalize) only file an approval request.
+- **Providers** (`lib/llm/providers.ts`). Keys are read from the environment on every request.
+  Order: `LLM_PROVIDER`, then the workspace setting (Settings → AI assistant, owners), then
+  Anthropic, then OpenAI. If the primary fails with 429/5xx *before* producing output, the other
+  configured provider gets one try. Otherwise, or with no key, the turn is answered in command mode
+  with a notice. Every model call is logged in `llm_calls` with tokens and estimated cost.
+- **Command mode.** Slash commands (`/help`, `/expenses summary october`, `/lyric history "Title"`,
+  `/lyric list missing`, `/export rights "Title"`, `/finalize "Title"`, `/budget`) always run without
+  a model, even when keys are set. Free text is matched against a keyword table, which can fan out to
+  several agents. A command missing an argument shows a small form.
+- **Budget.** When the month's estimated spend reaches the budget, turns are answered with commands
+  and a `blocked` call is logged. Lowering is direct; raising goes through `llm.budget.raise`.
+- **Lyric privacy.** The model sees lyric *text* only through `lyrics_readLyricText`, and only in
+  projects where `project.allow_llm_on_lyrics` is on. Elsewhere it sees titles and metadata.
+- **Suggestions.** `lyrics_proposeLyricEdit` stores a suggestion (`lyric_suggestions`); it never
+  writes a version. On the lyric page a person can edit, accept or dismiss it. Accepting creates a
+  version with origin `human_edit_of_ai_suggestion`, which the rights package reports. Only a
+  suggestion based on the latest version can be accepted. A trigger keeps suggestion text and
+  provenance immutable.
+- History is sent to the model as text plus a digest of earlier tool results, so a thread can switch
+  provider mid-way. Each project keeps a short rolling `project_context` of recent tool results.
+
+Tests never call a real provider unless keys are already in the environment.
+`tests/mocks/llm-server.mjs` speaks the Anthropic Messages and OpenAI Responses streaming protocols,
+picks tools from keywords, and can be told to fail (`POST /__control`). Playwright starts it on
+:4110 and points both SDKs at it; with real keys set, it uses them instead.
