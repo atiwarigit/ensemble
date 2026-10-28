@@ -1,4 +1,5 @@
 import { and, desc, eq, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { Executor } from "@/db";
 import { auditEvents } from "@/db/schema/audit";
 import { user } from "@/db/schema/auth";
@@ -60,6 +61,8 @@ export async function recordSystemAudit(
   });
 }
 
+const onBehalfOf = alias(user, "on_behalf_of");
+
 export type AuditFilters = { projectId?: string; action?: string; beforeId?: number; limit?: number };
 
 /**
@@ -79,7 +82,10 @@ export async function listAuditEvents(exec: Executor, ctx: ServiceContext, filte
     const ids = await visibleProjectIds(exec, ctx);
     const scope = or(
       ids.length ? inArray(auditEvents.projectId, ids) : sql`false`,
-      and(isNull(auditEvents.projectId), eq(auditEvents.actorUserId, ctx.userId)),
+      and(
+        isNull(auditEvents.projectId),
+        or(eq(auditEvents.actorUserId, ctx.userId), eq(auditEvents.onBehalfOfUserId, ctx.userId)),
+      ),
     );
     if (scope) conds.push(scope);
   }
@@ -92,10 +98,12 @@ export async function listAuditEvents(exec: Executor, ctx: ServiceContext, filte
       event: auditEvents,
       actorName: user.name,
       actorEmail: user.email,
+      onBehalfOfName: onBehalfOf.name,
       projectName: projects.name,
     })
     .from(auditEvents)
     .leftJoin(user, eq(user.id, auditEvents.actorUserId))
+    .leftJoin(onBehalfOf, eq(onBehalfOf.id, auditEvents.onBehalfOfUserId))
     .leftJoin(projects, eq(projects.id, auditEvents.projectId))
     .where(and(...conds))
     .orderBy(desc(auditEvents.id))

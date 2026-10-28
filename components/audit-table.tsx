@@ -2,6 +2,7 @@ import { Bot, Cog, User } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { AGENT_LABEL } from "@/lib/agents/chat-types";
 import { formatDateTime } from "@/lib/format";
 import type { AuditRow } from "@/lib/services/audit";
 
@@ -9,6 +10,12 @@ function actionTone(action: string): "default" | "secondary" | "destructive" | "
   if (/(removed|revoked|archived|failed|reverted|deleted)/.test(action)) return "destructive";
   if (action.startsWith("auth.")) return "outline";
   return "secondary";
+}
+
+function agentLabel(agentId: string | null) {
+  if (!agentId) return "Agent";
+  const label = AGENT_LABEL[agentId as keyof typeof AGENT_LABEL];
+  return label ? `${label} agent` : agentId;
 }
 
 function Details({ before, after }: { before: unknown; after: unknown }) {
@@ -51,7 +58,7 @@ export function AuditTable({ rows, showProject = true }: { rows: AuditRow[]; sho
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map(({ event: e, actorName, actorEmail, projectName }) => (
+          {rows.map(({ event: e, actorName, actorEmail, onBehalfOfName, projectName }) => (
             <TableRow key={e.id} data-testid="audit-row">
               <TableCell className="font-mono text-xs text-muted-foreground" data-testid="audit-id">
                 {e.id}
@@ -66,7 +73,9 @@ export function AuditTable({ rows, showProject = true }: { rows: AuditRow[]; sho
                   ) : (
                     <User className="size-3.5" />
                   )}
-                  {actorName ?? (e.actorType === "system" ? "System" : (e.agentId ?? "Unknown"))}
+                  {e.actorType === "agent"
+                    ? `${agentLabel(e.agentId)}${onBehalfOfName ? ` for ${onBehalfOfName}` : ""}`
+                    : (actorName ?? (e.actorType === "system" ? "System" : "Unknown"))}
                 </span>
               </TableCell>
               <TableCell>

@@ -11,6 +11,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
 
   const main: NavItem[] = [
     { title: "Dashboard", href: "/", icon: "LayoutDashboard" },
+    { title: "Chat", href: "/chat", icon: "MessageSquare" },
     { title: "Projects", href: "/projects", icon: "FolderKanban" },
     { title: "Lyrics", href: "/lyrics", icon: "FileText" },
     { title: "Expenses", href: "/expenses", icon: "Receipt" },
@@ -20,6 +21,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   const settings: NavItem[] = [
     { title: "Members", href: "/settings/members", icon: "Users" },
     { title: "Security", href: "/settings/security", icon: "ShieldCheck" },
+    { title: "AI assistant", href: "/settings/ai", icon: "Bot" },
   ];
 
   return (

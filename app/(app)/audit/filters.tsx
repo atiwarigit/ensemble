@@ -12,6 +12,8 @@ const ACTION_GROUPS = [
   { value: "approval.", label: "Approvals" },
   { value: "expense", label: "Expenses" },
   { value: "import.", label: "CSV imports" },
+  { value: "agent.", label: "AI agents" },
+  { value: "workspace.llm", label: "AI settings & budget" },
 ];
 
 export function AuditFilters({

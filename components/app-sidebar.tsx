@@ -2,12 +2,14 @@
 
 import {
   AudioWaveform,
+  Bot,
   ChevronsUpDown,
   FileText,
   Inbox,
   FolderKanban,
   LayoutDashboard,
   LogOut,
+  MessageSquare,
   Receipt,
   ScrollText,
   ShieldCheck,
@@ -39,7 +41,7 @@ import {
 } from "@/components/ui/sidebar";
 import { authClient } from "@/lib/auth-client";
 
-const ICONS = { LayoutDashboard, FolderKanban, FileText, Inbox, Receipt, ScrollText, Users, ShieldCheck } as const;
+const ICONS = { LayoutDashboard, FolderKanban, FileText, Inbox, Receipt, ScrollText, Users, ShieldCheck, MessageSquare, Bot } as const;
 export type NavIcon = keyof typeof ICONS;
 export type NavItem = { title: string; href: string; icon: NavIcon; badge?: number };
 

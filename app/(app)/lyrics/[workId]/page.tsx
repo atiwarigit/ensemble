@@ -1,4 +1,4 @@
-import { CheckCircle2, FileCheck2, FileClock, Lock, Pencil, Stamp } from "lucide-react";
+import { Bot, CheckCircle2, FileCheck2, FileClock, Lock, Pencil, Stamp } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
@@ -23,11 +23,13 @@ import {
 } from "@/lib/services/lyrics";
 import { listApprovals } from "@/lib/services/approvals";
 import { listProjectMembers } from "@/lib/services/projects";
+import { listSuggestions, SUGGESTION_KINDS } from "@/lib/services/suggestions";
 import { ContributorsEditor } from "./contributors-editor";
 import { DetailsForm } from "./details-form";
 import { EvidenceForm } from "./evidence-form";
 import { GenerationForm } from "./generation-form";
 import { ORIGIN_LABEL } from "./labels";
+import { SuggestionsPanel, type SuggestionRow } from "./suggestions-panel";
 
 export const metadata: Metadata = { title: "Lyric" };
 
@@ -36,13 +38,14 @@ export default async function LyricWorkPage(props: PageProps<"/lyrics/[workId]">
   const sp = await props.searchParams;
   const { ctx } = await requireAppContext();
   const { work, project, role } = await orNotFound(getWork(db, ctx, workId));
-  const [versions, contributors, evidence, generations, members, pendingApprovals] = await Promise.all([
+  const [versions, contributors, evidence, generations, members, pendingApprovals, suggestions] = await Promise.all([
     listVersions(db, ctx, workId),
     listContributors(db, workId),
     listEvidence(db, workId),
     listGenerations(db, workId),
     listProjectMembers(db, ctx, work.projectId),
     listApprovals(db, ctx, { scope: "pending", entityType: "lyric_work", entityId: workId }),
+    listSuggestions(db, ctx, workId),
   ]);
   const pendingFinalize = pendingApprovals.some((r) => r.req.actionType === "lyric.finalize");
   const pendingSplit = pendingApprovals.some((r) => r.req.actionType === "lyric.contributors.change");
@@ -50,6 +53,21 @@ export default async function LyricWorkPage(props: PageProps<"/lyrics/[workId]">
   const canEdit = role !== "viewer" && !project.archivedAt;
   const isDraft = work.status === "draft";
   const saved = typeof sp.saved === "string" ? versions.find((v) => String(v.version.versionNo) === sp.saved)?.version : undefined;
+  const suggestionRows: SuggestionRow[] = suggestions.map(({ s, baseVersionNo, baseBody, requestedByName }) => ({
+    id: s.id,
+    kind: s.kind,
+    kindLabel: SUGGESTION_KINDS[s.kind],
+    status: s.status,
+    suggestion: s.suggestion,
+    rationale: s.rationale,
+    provider: s.provider,
+    model: s.model,
+    baseVersionNo,
+    baseBody,
+    requestedByName,
+    createdAt: formatTimestamp(s.createdAt),
+    stale: s.baseVersionId !== latest?.id || !isDraft,
+  }));
   const versionOptions = versions.map(({ version: v }) => ({ id: v.id, label: `v${v.versionNo} · ${formatTimestamp(v.recordedAt)}` }));
 
   return (
@@ -183,6 +201,23 @@ export default async function LyricWorkPage(props: PageProps<"/lyrics/[workId]">
           </Card>
         </div>
       </div>
+
+      {suggestionRows.length > 0 && (
+        <Card id="suggestions">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Bot className="size-4" /> AI suggestions
+            </CardTitle>
+            <CardDescription>
+              Proposed by the assistant in chat. Nothing changes until a person accepts; the accepted text is saved as a new
+              version marked &ldquo;Human edit of an AI suggestion&rdquo;.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SuggestionsPanel workId={work.id} rows={suggestionRows} canEdit={canEdit} />
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

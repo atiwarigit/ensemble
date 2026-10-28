@@ -28,9 +28,19 @@ const timestamps = {
     .$onUpdate(() => sql`now()`),
 };
 
+export type LlmPreference = "auto" | "anthropic" | "openai" | "off";
+
+export type WorkspaceSettings = {
+  /** Which configured provider the coordinator uses. "off" forces command mode even when keys are set. */
+  llm_provider?: LlmPreference;
+  /** Monthly LLM spend cap in USD. Defaults to LLM_MONTHLY_BUDGET_USD (or 25). Raising it needs an approval. */
+  llm_monthly_budget_usd?: number;
+};
+
 export const workspaces = pgTable("workspaces", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
+  settings: jsonb("settings").$type<WorkspaceSettings>().notNull().default({}),
   ...timestamps,
 });
 
