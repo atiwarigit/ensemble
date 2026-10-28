@@ -29,7 +29,8 @@ export function ContributorsEditor({
   const [rows, setRows] = useState<Row[]>(initial);
   const [pending, startTransition] = useTransition();
   const total = Math.round(rows.reduce((s, r) => s + (Number(r.sharePct) || 0), 0) * 100) / 100;
-  const dirty = JSON.stringify(rows) !== JSON.stringify(initial);
+  const normalize = (rs: Row[]) => JSON.stringify(rs.map((r) => ({ ...r, sharePct: Number(r.sharePct) })));
+  const dirty = normalize(rows) !== normalize(initial);
   const unlisted = members.filter((m) => !rows.some((r) => r.userId === m.id));
 
   if (!editable) {
