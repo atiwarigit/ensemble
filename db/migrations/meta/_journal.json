@@ -22,6 +22,20 @@
       "when": 1793152576590,
       "tag": "0002_expenses",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793157582326,
+      "tag": "0003_lyrics",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793157582961,
+      "tag": "0004_lyric_triggers",
+      "breakpoints": true
     }
   ]
 }

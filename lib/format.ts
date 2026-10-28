@@ -27,3 +27,10 @@ export function formatMonth(ym: string) {
     new Date(Date.UTC(y, m - 1, 1)),
   );
 }
+
+/** Second-precision UTC timestamp for authorship records, e.g. "2026-10-28 03:22:10 UTC". */
+export function formatTimestamp(d: Date | string) {
+  return `${new Date(d).toISOString().slice(0, 19).replace("T", " ")} UTC`;
+}
+
+export const shortHash = (hash: string) => `${hash.slice(0, 12)}…`;

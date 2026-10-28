@@ -7,6 +7,7 @@ const ACTION_GROUPS = [
   { value: "auth.", label: "Sign-ins & security" },
   { value: "workspace.", label: "Workspace & invites" },
   { value: "project.", label: "Projects" },
+  { value: "lyric.", label: "Lyrics & authorship" },
   { value: "expense", label: "Expenses" },
   { value: "import.", label: "CSV imports" },
 ];

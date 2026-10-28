@@ -18,6 +18,7 @@ password, TOTP 2FA) · shadcn/ui + Tailwind 4 · Zod · Vitest + Playwright.
 | Expenses: manual entry, categories, project or personal allocation, soft delete | ✅ |
 | Bank CSV import: column mapping, saved presets, preview, dedupe, revert | ✅ |
 | Categorization rules, budgets with alert thresholds, monthly reports, CSV export | ✅ |
+| Lyrics: immutable timestamped + hashed versions, diffs, contributor splits, evidence files, AI generation log | ✅ |
 
 ## Local development
 
@@ -114,6 +115,7 @@ lib/authz.ts         session → ServiceContext, Server Action wrapper
 lib/services/*       the only code that writes the DB; every mutation audits in the same transaction
 lib/csv/             CSV decoding, mapping guesses, parsing, dedupe hashing (pure, unit tested)
 samples/bank-csv/    sample bank statements for import testing
+samples/lyrics/      a sample poem and notebook-page photo for the authorship flow
 scripts/             migrate, seed, reset-db, totp
 tests/unit, tests/e2e
 ```
@@ -162,3 +164,24 @@ Sample statements for testing live in `samples/bank-csv/`:
 | `amex-gold-2026-10.csv` | Positive = spend, card member and account columns |
 | `capital-one-2026-q3.csv` | Separate Debit / Credit columns, ISO dates |
 | `messy-semicolon-latin1.csv` | Latin-1, `;` delimiter, `DD/MM/YYYY`, decimal commas, three bad rows |
+
+### Lyrics and authorship
+
+- A lyric work belongs to one project. Every save creates a new `lyric_versions` row; versions are
+  never edited. Triggers reject UPDATE/DELETE/TRUNCATE on `lyric_versions` and UPDATE/DELETE on
+  `lyric_evidence` and `generation_links`.
+- The `BEFORE INSERT` trigger sets `recorded_at = clock_timestamp()` and
+  `content_sha256 = sha256(body)`, so neither the time nor the hash can come from the client. Each
+  `lyric.version.created` audit event carries the same hash, tying the text to the audit chain.
+- Text is normalised before hashing (CRLF → LF, trailing spaces trimmed), so the same lyrics always
+  hash the same. `sha256sum` of a version's text (no trailing newline) matches the stored hash.
+- "Date written" is stored separately as `claimed_written_at` and always labelled *stated by the
+  author*. Ensemble only proves when it recorded the text.
+- Saves carry the version they were based on; a save on top of a newer version is rejected instead
+  of overwriting it. Saving unchanged text is rejected.
+- Contributor shares are stored in basis points (10000 = 100%), must total 100%, and need at least
+  one human lyricist. Once a work is final, text and split are locked; changes go through approvals.
+- Evidence files (up to 10 MB) are stored in Postgres (`stored_files.data`, `bytea`) with their
+  SHA-256, so no blob store is needed. Downloads are audited.
+- An AI generation log entry must reference a recorded lyric version of the same work, so a work with
+  no human lyrics can't have generations.
