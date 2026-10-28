@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ensemble
+          POSTGRES_PASSWORD: ensemble
+          POSTGRES_DB: ensemble
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ensemble" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://ensemble:ensemble@localhost:5432/ensemble
+      TEST_DATABASE_URL: postgres://ensemble:ensemble@localhost:5432/ensemble_test
+      E2E_DATABASE_URL: postgres://ensemble:ensemble@localhost:5432/ensemble_e2e
+      BETTER_AUTH_SECRET: ci-only-secret-not-used-anywhere-else-0123456789
+      BETTER_AUTH_URL: http://localhost:3100
+      NEXT_PUBLIC_APP_URL: http://localhost:3100
+      BOOTSTRAP_OWNER_EMAIL: romel@ensemble.local
+      SEED_MEMBER_EMAIL: nikki@ensemble.local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Create test databases
+        run: |
+          PGPASSWORD=ensemble psql -h localhost -U ensemble -d ensemble -c "create database ensemble_test" -c "create database ensemble_e2e"
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
