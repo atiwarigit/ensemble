@@ -10,7 +10,17 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 
-const COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
+// Categorical palette: the theme's --chart-* tokens are grayscale, which makes stacked categories unreadable.
+const COLORS = [
+  "oklch(0.62 0.19 259)",
+  "oklch(0.70 0.17 162)",
+  "oklch(0.77 0.16 70)",
+  "oklch(0.64 0.21 25)",
+  "oklch(0.60 0.22 300)",
+  "oklch(0.72 0.12 210)",
+  "oklch(0.66 0.15 130)",
+  "oklch(0.70 0.02 260)",
+];
 
 export function SpendChart({
   data,

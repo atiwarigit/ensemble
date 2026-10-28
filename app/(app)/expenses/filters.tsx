@@ -13,11 +13,14 @@ export function ExpenseFilters({
   categories,
   showSearch = true,
   showCategory = true,
+  defaultMonth,
 }: {
   projects: Option[];
   categories?: Option[];
   showSearch?: boolean;
   showCategory?: boolean;
+  /** Shown when no month filter is set (e.g. the report's end month). */
+  defaultMonth?: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -68,7 +71,7 @@ export function ExpenseFilters({
         type="month"
         aria-label="Month"
         className="w-40"
-        value={params.get("month") ?? ""}
+        value={params.get("month") ?? defaultMonth ?? ""}
         onChange={(e) => set("month", e.target.value || null)}
       />
       {showSearch && (

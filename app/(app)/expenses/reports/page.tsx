@@ -69,7 +69,7 @@ export default async function ReportsPage(props: PageProps<"/expenses/reports">)
   return (
     <div className="grid gap-6">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <ExpenseFilters projects={options.projects} showSearch={false} showCategory={false} />
+        <ExpenseFilters projects={options.projects} showSearch={false} showCategory={false} defaultMonth={endMonth} />
         <Button variant="outline" asChild>
           <a href={`/api/expenses/export?${exportParams}`}>
             <Download /> Export report CSV
